@@ -1,0 +1,37 @@
+[project]
+name = "cbor2-dns"
+dynamic = ["dependencies", "version"]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-cov",
+]
+
+[tool.setuptools.packages.find]
+include = ["cbor2_dns"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+version = {attr = "cbor2_dns.__version__"}
+
+[tool.coverage.run]
+omit = ["dist/*", "docs/*", "env/*", "build/*", "*.egg"]
+
+[tool.codespell]
+skip = '*.bib,*.egg,./.git,./.tox,./build,./dist,./docs/_build,./env,./.pytest_cache'
+
+[tool.flake8]
+max-line-length = 88
+exclude = ".tox,build,dist,docs,env,*.egg"
+
+[tool.pylint]
+max-line-length = 88
+
+[tool.pytest.ini_options]
+addopts = """-v --junit-xml=test-report.xml
+          --doctest-modules
+          --cov=cbor2_dns --cov=tests --cov-branch
+          --cov-report=term-missing --cov-report=xml"""
+testpaths = "tests"
+norecursedirs = "docs/*"
