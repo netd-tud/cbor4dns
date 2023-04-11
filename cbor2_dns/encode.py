@@ -238,10 +238,98 @@ class DNSResponse:
         return res
 
 
+class DefaultPackingTableConstructor:
+    def __init__(self):
+        pass
+
+    """TODO packing table length should not exceed 2^26"""
+
+
 class Encoder:
     def __init__(self, fp, packed=False):
         self.fp = fp
-        self.cbor_encoder = cbor2.CBOREncoder(fp=fp, default=self.default_encoder)
+        self.cbor_encoder = self.cbor_encoder_factory(
+            fp=fp, default=self.default_encoder
+        )
+        self.packed = packed
+        self.packing_table = None
+
+    def cbor_encoder_factory(self, *args, **kwargs):
+        outer = self
+
+        class CBOREncoder(cbor2.CBOREncoder):
+            def _ref_shared_item(self, value, idx):
+                if idx < 16:
+                    self.encode_simple_value(idx)
+                else:
+                    n = (15 - idx) // 2 if idx % 2 else (idx - 16) // 2
+                    self.encode_semantic(CBORTag(6, n))
+
+            def _ref_straight_rump(self, value, idx):
+                if idx == 0:
+                    self.encode_semantic(CBORTag(6, value))
+                elif idx < 32:
+                    self.encode_semantic(CBORTag(224 + idx, value))
+                elif idx < 4096:
+                    self.encode_semantic(
+                        CBORTag(28704 + (idx - 32), value)
+                    )
+                elif idx < (1 << 28):
+                    self.encode_semantic(
+                        CBORTag(1879052288 + (idx - 4096), value)
+                    )
+                else:  # pragma: no-cover
+                    raise RuntimeError("Should not be reached")
+
+
+            def _ref_inverted_rump(self, value, idx):
+                if idx < 8:
+                    self.encode_semantic(CBORTag(216 + idx, value))
+                elif idx < 1024:
+                    self.encode_semantic(
+                        CBORTag(27647 + (idx - 8), value)
+                    )
+                elif idx < (1 << 26):
+                    self.encode_semantic(
+                        CBORTag(1811940352 + (idx - 1024), value)
+                    )
+                else:  # pragma: no-cover
+                    raise RuntimeError("Should not be reached")
+
+
+            def encode_int(self, value):
+                if outer.packing_table:
+                    for idx, prefix in enumerate(outer.packing_table):
+                        if isinstance(prefix, int) and value == prefix:
+                            self._ref_shared_item(value, idx)
+                            return
+                super().encode_int(value)
+
+            def encode_bytestring(self, value):
+                if outer.packing_table:
+                    for idx, prefix in enumerate(outer.packing_table):
+                        if isinstance(prefix, bytes) and value == prefix:
+                            self._ref_shared_item(value, idx)
+                            return
+                        elif value.startswith(prefix):
+                            value = value[len(prefix):]
+                            self._ref_straight_rump(value, idx)
+                            return
+                super().encode_bytestring(value)
+
+            def encode_string(self, value):
+                if outer.packing_table:
+                    for idx, suffix in enumerate(outer.packing_table):
+                        if isinstance(prefix, str) and value == suffix:
+                            self._ref_shared_item(value, idx)
+                            return
+                        elif value.endswith(suffix):
+                            value = value[:-len(suffix)]
+                            self._ref_inverted_rump(value, idx)
+                            return
+                super().encode_string(value)
+
+        return CBOREncoder(*args, **kwargs)
 
     @staticmethod
     def default_encoder(cbor_encoder, value):
@@ -323,4 +411,5 @@ class Encoder:
             res = self._encode_query(msg)
         if self.packed:
             # TODO
+            pass
         self.cbor_encoder.encode(res)
