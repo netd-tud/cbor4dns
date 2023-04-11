@@ -2,6 +2,7 @@
 Provides the encoder for encoding DNS messages to application/dns+cbor
 """
 
+import io
 import itertools
 from typing import List, Optional, Union
 
@@ -9,19 +10,37 @@ import cbor2
 import dns.message
 import dns.name
 import dns.rrset
-from dns.rdataclass import IN, RdataClass
-from dns.rdatatype import AAAA, RdataType
+from dns.rdataclass import RdataClass
+from dns.rdatatype import RdataType
+
+
+TEXT_STRING_TYPES = [
+    RdataType.NS,
+    RdataType.CNAME,
+    RdataType.PTR,
+    # TODO fill further
+]
 
 
 class TypeSpec:
-    def __init__(self, record_type: RdataType = AAAA, record_class: RdataClass = IN):
+    def __init__(
+        self,
+        record_type: RdataType = RdataType.AAAA,
+        record_class: RdataClass = RdataClass.IN
+    ):
         self.record_type = record_type
         self.record_class = record_class
 
+    def __eq__(self, other):
+        return (
+            self.record_type == other.record_type
+            and self.record_class == other.record_class
+        )
+
     def to_obj(self) -> list:
-        if self.record_class != IN:
+        if self.record_class != RdataClass.IN:
             return [self.record_type, self.record_class]
-        if self.record_type != AAAA:
+        if self.record_type != RdataType.AAAA:
             return [self.record_type]
         return []
 
@@ -44,10 +63,28 @@ class Question(HasTypeSpec):
         super().__init__(type_spec)
         self.name = name
 
+    def __eq__(self, other):
+        return self.name == other.name and self.type_spec == other.type_spec
+
     def to_obj(self) -> list:
         res = [self.name]
         res.extend(self.type_spec.to_obj())
         return res
+
+    @classmethod
+    def from_obj(cls, obj: list):
+        if not obj or len(obj) > 3:
+            raise ValueError(f"Unexpected question length for question {obj}")
+        name = dns.name.from_text(obj[0])
+        try:
+            record_type = obj[1]
+        except IndexError:
+            record_type = RdataType.AAAA
+        try:
+            record_class = obj[2]
+        except IndexError:
+            record_class = RdataClass.IN
+        return cls(name, TypeSpec(record_type, record_class))
 
 
 class RR(HasTypeSpec):
@@ -73,12 +110,19 @@ class RR(HasTypeSpec):
             res.append(self.name)
         res.append(self.ttl)
         res.extend(self.type_spec.to_obj())
-        res.append(self.rdata)
+        if self.rdata.rdtype in TEXT_STRING_TYPES:
+            res.append(self.rdata.to_text().strip("."))
+        else:
+            res.append(self.rdata.to_wire())
         return res
 
     @staticmethod
     def rrs_from_rrset(rrset, question: Question) -> list:
         if isinstance(rrset, dns.rrset.RRset):
+            if rrset.rdtype in [RdataType.OPT, RdataType.TSIG]:
+                with io.BytesIO() as fp:
+                    rrset.to_wire(fp)
+                    return [fp.getvalue()]
             return [
                 RR(
                     rrset.name,
@@ -90,8 +134,6 @@ class RR(HasTypeSpec):
                 for rr in rrset
             ]
         else:
-            # TODO: some info for options is lost here, other cases need to be evaluated
-            # as well...
             return [rrset.to_wire()]
 
     @staticmethod
@@ -141,7 +183,7 @@ class ExtraSections:
 
     def to_obj(self) -> list:
         if self.authority:
-            return [self.additional, self.authority]
+            return [self.authority, self.additional]
         if self.additional:
             return [self.additional]
         return []
@@ -174,47 +216,111 @@ class ResponseIDFlags(IDFlagsBase):
         super().__init__(0x8000, id, flags)
 
 
+class DNSResponse:
+    def __init__(
+        self,
+        id_flags: QueryIDFlags,
+        question: Optional[Question],
+        answer: List[Union[RR, bytes]],
+        extra: ExtraSections,
+    ):
+        self.id_flags = id_flags
+        self.question = question
+        self.answer = answer
+        self.extra = extra
+
+    def to_obj(self) -> list:
+        res = self.id_flags.to_obj()
+        if self.question:
+            res.append(self.question)
+        res.append(self.answer)
+        res.extend(self.extra.to_obj())
+        return res
+
+
 class Encoder:
-    def __init__(self, fp, packed=False, enforce_id0=False):
+    def __init__(self, fp, packed=False):
         self.fp = fp
         self.cbor_encoder = cbor2.CBOREncoder(fp=fp, default=self.default_encoder)
 
     @staticmethod
     def default_encoder(cbor_encoder, value):
-        if isinstance(value, (DNSQuery, Question)):
+        if isinstance(value, (DNSQuery, DNSResponse, Question, RR)):
             cbor_encoder.encode(value.to_obj())
         elif isinstance(value, dns.name.Name):
             cbor_encoder.encode(value.to_text(omit_final_dot=True))
         else:
-            print(repr(value))
+            raise ValueError(f"Can not encode {value:r} (type {type(value)})")
 
-    def encode(self, msg, orig_query=None):
+    @staticmethod
+    def _get_question(msg):
+        if len(msg.question) > 1:
+            raise ValueError(
+                f"Can not encode message {msg} with question section longer than 1"
+            )
+        question_section = msg.question[0]
+        return Question(
+            question_section.name,
+            TypeSpec(question_section.rdtype, question_section.rdclass),
+        )
+
+    @staticmethod
+    def _get_additional(msg, question):
+        additional = RR.rrs_from_section(msg.additional, question)
+        if msg.opt:
+            additional += RR.rrs_from_section([msg.opt], question)
+        if msg.tsig:
+            additional += RR.rrs_from_section(msg.tsig, question)
+        return additional
+
+    def _encode_query(self, msg: dns.message.Message):
+        question = self._get_question(msg)
+        return DNSQuery(
+            QueryIDFlags(msg.id, msg.flags),
+            question,
+            ExtraSections(
+                authority=RR.rrs_from_section(msg.authority, question),
+                additional=self._get_additional(msg, question),
+            ),
+        )
+
+    def _encode_response(
+        self,
+        msg: dns.message.Message,
+        orig_question: Optional[Question]
+    ):
+        question = self._get_question(msg)
+        if orig_question and question == orig_question:
+            question = None
+        return DNSResponse(
+            QueryIDFlags(msg.id, msg.flags),
+            question,
+            RR.rrs_from_section(msg.answer, orig_question or question),
+            ExtraSections(
+                authority=RR.rrs_from_section(msg.authority, orig_question or question),
+                additional=self._get_additional(msg, orig_question or question),
+            ),
+        )
+
+    def encode(
+        self,
+        msg: Union[bytes, dns.message.Message],
+        orig_query: Optional[Union[bytes, list]] = None
+    ):
         if not isinstance(msg, dns.message.Message):
-            msg = dns.message.from_wire(msg)
+            msg = dns.message.from_wire(msg, one_rr_per_rrset=True)
         if msg.flags & msg.flags.QR:  # msg is response
-            pass
-        else:
-            if len(msg.question) > 1:
-                raise ValueError(
-                    f"Can not encode query {msg} with question section longer than 1"
+            if orig_query:
+                if isinstance(orig_query, bytes):
+                    orig_query = cbor2.loads(orig_query)
+                orig_question = Question.from_obj(
+                    [q for q in orig_query if isinstance(q, list)][0]
                 )
-            question_section = msg.question[0]
-            question = Question(
-                question_section.name,
-                TypeSpec(question_section.rdtype, question_section.rdclass),
-            )
-            self.cbor_encoder.encode(
-                DNSQuery(
-                    QueryIDFlags(msg.id, msg.flags),
-                    question,
-                    ExtraSections(
-                        authority=RR.rrs_from_section(msg.authority, question),
-                        additional=(
-                            # TODO: find a better solution for this ... :-/
-                            RR.rrs_from_section(msg.additional, question) +
-                            RR.rrs_from_section(msg.options, question)
-                        ),
-                    ),
-                ),
-            )
-            print(cbor2.loads(self.fp.getvalue()))
+            else:
+                orig_question = None
+            res = self._encode_response(msg, orig_question)
+        else:
+            res = self._encode_query(msg)
+        if self.packed:
+            # TODO
+        self.cbor_encoder.encode(res)
