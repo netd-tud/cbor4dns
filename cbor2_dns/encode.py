@@ -248,54 +248,52 @@ class DefaultPackingTableConstructor:
 class Encoder:
     def __init__(self, fp, packed=False):
         self.fp = fp
-        self.cbor_encoder = self.cbor_encoder_factory(
-            fp=fp, default=self.default_encoder
-        )
         self.packed = packed
+        self.cbor_encoder = self.cbor_encoder_factory(
+            packed, fp=fp, default=self.default_encoder
+        )
         self.packing_table = None
 
-    def cbor_encoder_factory(self, *args, **kwargs):
+    def cbor_encoder_factory(self, packed, *args, **kwargs):
         outer = self
 
-        class CBOREncoder(cbor2.CBOREncoder):
+        class PackedCBOREncoder(cbor2.CBOREncoder):
             def _ref_shared_item(self, value, idx):
                 if idx < 16:
                     self.encode_simple_value(idx)
                 else:
                     n = (15 - idx) // 2 if idx % 2 else (idx - 16) // 2
-                    self.encode_semantic(CBORTag(6, n))
+                    self.encode_semantic(cbor2.CBORTag(6, n))
 
             def _ref_straight_rump(self, value, idx):
                 if idx == 0:
-                    self.encode_semantic(CBORTag(6, value))
+                    self.encode_semantic(cbor2.CBORTag(6, value))
                 elif idx < 32:
-                    self.encode_semantic(CBORTag(224 + idx, value))
+                    self.encode_semantic(cbor2.CBORTag(224 + idx, value))
                 elif idx < 4096:
                     self.encode_semantic(
-                        CBORTag(28704 + (idx - 32), value)
+                        cbor2.CBORTag(28704 + (idx - 32), value)
                     )
                 elif idx < (1 << 28):
                     self.encode_semantic(
-                        CBORTag(1879052288 + (idx - 4096), value)
+                        cbor2.CBORTag(1879052288 + (idx - 4096), value)
                     )
                 else:  # pragma: no-cover
                     raise RuntimeError("Should not be reached")
-
 
             def _ref_inverted_rump(self, value, idx):
                 if idx < 8:
-                    self.encode_semantic(CBORTag(216 + idx, value))
+                    self.encode_semantic(cbor2.CBORTag(216 + idx, value))
                 elif idx < 1024:
                     self.encode_semantic(
-                        CBORTag(27647 + (idx - 8), value)
+                        cbor2.CBORTag(27647 + (idx - 8), value)
                     )
                 elif idx < (1 << 26):
                     self.encode_semantic(
-                        CBORTag(1811940352 + (idx - 1024), value)
+                        cbor2.CBORTag(1811940352 + (idx - 1024), value)
                     )
                 else:  # pragma: no-cover
                     raise RuntimeError("Should not be reached")
-
 
             def encode_int(self, value):
                 if outer.packing_table:
@@ -320,7 +318,7 @@ class Encoder:
             def encode_string(self, value):
                 if outer.packing_table:
                     for idx, suffix in enumerate(outer.packing_table):
-                        if isinstance(prefix, str) and value == suffix:
+                        if isinstance(suffix, str) and value == suffix:
                             self._ref_shared_item(value, idx)
                             return
                         elif value.endswith(suffix):
@@ -329,7 +327,9 @@ class Encoder:
                             return
                 super().encode_string(value)
 
-        return CBOREncoder(*args, **kwargs)
+        if packed:
+            return PackedCBOREncoder(*args, **kwargs)
+        return cbor2.CBOREncoder(*args, **kwargs)
 
     @staticmethod
     def default_encoder(cbor_encoder, value):
