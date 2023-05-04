@@ -79,22 +79,27 @@ class StringTrie:
             current_node = current_node.setdefault(char, {})
         current_node[self._end_marker] = {}
 
+    def _remove(self, node, string, depth=0):
+        if not node:
+            return None
+        if depth == len(string):
+            if self._end_marker in node:
+                del node[self._end_marker]
+            if not node:
+                del node
+                node = None
+            return node
+        key = string[depth]
+        node[key] = self._remove(node[key], string, depth + 1)
+        if not node[key]:
+            del node[key]
+        if not node:
+            del node
+            node = None
+        return node
+
     def remove(self, string):
-        prev_nodes = [self.root]
-        current_node = self.root.get(string[0])
-        for char in string[1:]:
-            if not current_node:
-                return
-            prev_nodes.insert(0, current_node)
-            current_node = current_node.get(char)
-        for i, node in enumerate(prev_nodes):
-            if len(node) > 1 or (i + 1) >= len(prev_nodes):
-                node.pop(self._end_marker, None)
-                break
-            for char, neighbor in prev_nodes[i + 1].items():
-                if neighbor == node:
-                    del prev_nodes[i + 1][char]
-                    break
+        self._remove(self.root, string)
 
 
 class BytesTrie(StringTrie):
