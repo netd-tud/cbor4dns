@@ -85,6 +85,40 @@ class BaseTrie:
     def __contains__(self, string) -> bool:
         return self.search(string) == TrieSearchResult.MATCH_FOUND
 
+    def _get_node_res(self, node, res):
+        return res
+
+    def _get_char(self, char):
+        return char
+
+    def __iter__(self):
+        res_parts = []
+        visited = []
+        discovered = set()
+        visited.append((self._trie_type(), self.root))
+        res = self._trie_type()
+        while visited:  # pragma: no cover
+            char, node = visited.pop()
+            if char == self._end_marker:
+                try:
+                    res = res_parts.pop()
+                except IndexError:
+                    # no more branches above this node, so just finish this iteration
+                    return
+            else:
+                res += self._get_char(char)
+                if res:
+                    yield self._get_node_res(node, res)
+            if id(node) not in discovered:  # pragma: no cover
+                discovered.add(id(node))
+                res_parts.extend([res] * (len(node) - 1))
+                for key in sorted(
+                    node.keys(),
+                    key=lambda k: self._trie_type() if k is None else
+                    self._get_char(k),
+                ):
+                    visited.append((key, node[key]))
+
     def search(self, string) -> TrieSearchResult:
         """
         Check if a string or a prefix for that string is in the trie.
@@ -147,9 +181,18 @@ class StringTrie(BaseTrie):
 class BytesTrie(BaseTrie):
     _trie_type = bytes
 
+    def _get_char(self, char):
+        if isinstance(char, self._trie_type):
+            return char
+        else:
+            return self._trie_type([char])
+
 
 class CountingBaseTrie(BaseTrie):
     _trie_node_class = CountingTrieNode
+
+    def _get_node_res(self, node, res):
+        return node.count, res
 
 
 class CountingStringTrie(StringTrie, CountingBaseTrie):

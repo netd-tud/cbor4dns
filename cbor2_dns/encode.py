@@ -13,6 +13,8 @@ import dns.rrset
 from dns.rdataclass import RdataClass
 from dns.rdatatype import RdataType
 
+from . import trie
+
 
 TEXT_STRING_TYPES = [
     RdataType.NS,
@@ -66,6 +68,10 @@ class Question(HasTypeSpec):
     def __eq__(self, other):
         return self.name == other.name and self.type_spec == other.type_spec
 
+    def walk(self):
+        for obj in self.to_obj():
+            yield obj
+
     def to_obj(self) -> list:
         res = [self.name]
         res.extend(self.type_spec.to_obj())
@@ -95,6 +101,7 @@ class RR(HasTypeSpec):
         ttl: int,
         rdata: Union[int, bytes, str],
         question: Question,
+        tries=None,
     ):
         if ttl < 0:
             raise ValueError(f"ttl={ttl} must not be < 0")
@@ -103,26 +110,40 @@ class RR(HasTypeSpec):
         self.name = name
         self.ttl = ttl
         self.rdata = rdata
+        self.tries = tries
+
+    def walk(self):
+        for obj in self.to_obj():
+            yield obj
 
     def to_obj(self) -> list:
         res = []
         if self.question.name != self.name:
+            if self.tries:
+                self.tries[str].insert(self.name.to_text(omit_final_dot=True)[::-1])
             res.append(self.name)
         res.append(self.ttl)
         res.extend(self.type_spec.to_obj())
         if self.rdata.rdtype in TEXT_STRING_TYPES:
-            res.append(self.rdata.to_text().strip("."))
+            res.append(self.rdata.to_text(omit_final_dot=True).strip("."))
+            if self.tries:
+                self.tries[str].insert(res[-1][::-1])
         else:
             res.append(self.rdata.to_wire())
+            if self.tries:
+                self.tries[bytes].insert(res[-1])
         return res
 
     @staticmethod
-    def rrs_from_rrset(rrset, question: Question) -> list:
+    def rrs_from_rrset(rrset, question: Question, tries=None) -> list:
         if isinstance(rrset, dns.rrset.RRset):
             if rrset.rdtype in [RdataType.OPT, RdataType.TSIG]:
                 with io.BytesIO() as fp:
                     rrset.to_wire(fp)
-                    return [fp.getvalue()]
+                    byts = fp.getvalue()
+                    if tries:
+                        tries[bytes].insert(byts)
+                    return [byts]
             return [
                 RR(
                     rrset.name,
@@ -130,17 +151,21 @@ class RR(HasTypeSpec):
                     rrset.ttl,
                     rr,
                     question,
+                    tries,
                 )
                 for rr in rrset
             ]
         else:
-            return [rrset.to_wire()]
+            res = [rrset.to_wire()]
+            if tries:
+                tries[bytes].insert(res[0])
+            return res
 
     @staticmethod
-    def rrs_from_section(section: List, question: Question) -> list:
+    def rrs_from_section(section: List, question: Question, tries=None) -> list:
         return list(
             itertools.chain.from_iterable(
-                RR.rrs_from_rrset(rrset, question)
+                RR.rrs_from_rrset(rrset, question, tries=tries)
                 for rrset in section
             ),
         )
@@ -154,6 +179,10 @@ class IDFlagsBase:
         self.flags = default_flags if flags is None else flags
         self.default_flags = default_flags
         self.id = id
+
+    def walk(self):
+        for obj in self.to_obj():
+            yield obj
 
     def to_obj(self) -> list:
         if not self.enforce_flags_default and self.flags != self.default_flags:
@@ -181,9 +210,28 @@ class ExtraSections:
         self.authority = authority
         self.additional = additional
 
+    def walk(self):
+        if self.authority:
+            for memb in self.authority:
+                if isinstance(memb, RR):
+                    for obj in memb.walk():
+                        yield obj
+                else:
+                    yield obj
+        if self.additional:
+            for memb in self.additional:
+                if isinstance(memb, RR):
+                    for obj in memb.walk():
+                        yield obj
+                else:
+                    yield obj
+
     def to_obj(self) -> list:
         if self.authority:
-            return [self.authority, self.additional]
+            if self.additional:
+                return [self.authority, self.additional]
+            else:
+                return [self.authority, []]
         if self.additional:
             return [self.additional]
         return []
@@ -199,6 +247,14 @@ class DNSQuery:
         self.id_flags = id_flags
         self.question = question
         self.extra = extra
+
+    def walk(self):
+        for obj in self.id_flags.walk():
+            yield obj
+        for obj in self.question.walk():
+            yield obj
+        for obj in self.extra.walk():
+            yield obj
 
     def to_obj(self) -> list:
         res = self.id_flags.to_obj()
@@ -219,7 +275,7 @@ class ResponseIDFlags(IDFlagsBase):
 class DNSResponse:
     def __init__(
         self,
-        id_flags: QueryIDFlags,
+        id_flags: ResponseIDFlags,
         question: Optional[Question],
         answer: List[Union[RR, bytes]],
         extra: ExtraSections,
@@ -228,6 +284,21 @@ class DNSResponse:
         self.question = question
         self.answer = answer
         self.extra = extra
+
+    def walk(self):
+        for obj in self.id_flags.walk():
+            yield obj
+        if self.question:
+            for obj in self.question.walk():
+                yield obj
+        for memb in self.answer:
+            if isinstance(memb, RR):
+                for obj in memb.walk():
+                    yield obj
+            else:
+                yield obj
+        for obj in self.extra:
+            yield obj
 
     def to_obj(self) -> list:
         res = self.id_flags.to_obj()
@@ -239,20 +310,31 @@ class DNSResponse:
 
 
 class DefaultPackingTableConstructor:
-    def __init__(self):
-        pass
+    def __init__(self, encoder):
+        self.encoder = encoder
 
-    """TODO packing table length should not exceed 2^26"""
+    def get_packing_table(self, obj):
+        pass
 
 
 class Encoder:
+    packing_table_constructor_type = DefaultPackingTableConstructor
+
     def __init__(self, fp, packed=False):
         self.fp = fp
         self.packed = packed
         self.cbor_encoder = self.cbor_encoder_factory(
             packed, fp=fp, default=self.default_encoder
         )
-        self.packing_table = None
+        if self.packed:
+            self.tries = {
+                str: trie.CountingStringTrie(),
+                bytes: trie.CountingBytesTrie(),
+            }
+            self.packing_table = None
+        else:
+            self.tries = None
+            self.packing_table = None
 
     def cbor_encoder_factory(self, packed, *args, **kwargs):
         outer = self
@@ -352,13 +434,12 @@ class Encoder:
             TypeSpec(question_section.rdtype, question_section.rdclass),
         )
 
-    @staticmethod
-    def _get_additional(msg, question):
-        additional = RR.rrs_from_section(msg.additional, question)
+    def _get_additional(self, msg, question):
+        additional = RR.rrs_from_section(msg.additional, question, self.tries)
         if msg.opt:
-            additional += RR.rrs_from_section([msg.opt], question)
+            additional += RR.rrs_from_section([msg.opt], question, self.tries)
         if msg.tsig:
-            additional += RR.rrs_from_section(msg.tsig, question)
+            additional += RR.rrs_from_section(msg.tsig, question, self.tries)
         return additional
 
     def _encode_query(self, msg: dns.message.Message):
@@ -367,7 +448,7 @@ class Encoder:
             QueryIDFlags(msg.id, msg.flags),
             question,
             ExtraSections(
-                authority=RR.rrs_from_section(msg.authority, question),
+                authority=RR.rrs_from_section(msg.authority, question, self.tries),
                 additional=self._get_additional(msg, question),
             ),
         )
@@ -380,12 +461,15 @@ class Encoder:
         question = self._get_question(msg)
         if orig_question and question == orig_question:
             question = None
+        elif self.tries:
+            self.tries[str].insert(question.name.to_text(omit_final_dot=True)[::-1])
         return DNSResponse(
-            QueryIDFlags(msg.id, msg.flags),
+            ResponseIDFlags(msg.id, msg.flags),
             question,
-            RR.rrs_from_section(msg.answer, orig_question or question),
+            RR.rrs_from_section(msg.answer, orig_question or question, self.tries),
             ExtraSections(
-                authority=RR.rrs_from_section(msg.authority, orig_question or question),
+                authority=RR.rrs_from_section(msg.authority, orig_question or question,
+                                              self.tries),
                 additional=self._get_additional(msg, orig_question or question),
             ),
         )
@@ -410,6 +494,7 @@ class Encoder:
         else:
             res = self._encode_query(msg)
         if self.packed:
-            # TODO
-            pass
+            # TODO: Henne-Ei-Problem :(
+            packing_table_constr = self.packing_table_constructor_type(self)
+            self.packing_table = packing_table_constr.get_packing_table(res)
         self.cbor_encoder.encode(res)

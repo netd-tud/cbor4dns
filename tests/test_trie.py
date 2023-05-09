@@ -72,6 +72,16 @@ def test_string_trie_remove():
     assert "foobar" in trie
 
 
+def test_string_trie_iter():
+    trie = cbor2_dns.trie.StringTrie(["foo", "bar", "foobar"])
+    expected = {"b", "ba", "bar", "f", "fo", "foo", "foob", "fooba", "foobar"}
+    for string in trie:
+        assert string in expected
+        print(string)
+        expected.remove(string)
+    assert not expected
+
+
 def test_counting_string_trie_remove():
     trie = cbor2_dns.trie.CountingStringTrie(["foo", "bar", "bar", "foobar"])
     assert "test" not in trie
@@ -145,6 +155,26 @@ def test_counting_string_trie_remove():
     assert root_childs == 1
 
 
+def test_counting_string_trie_iter():
+    trie = cbor2_dns.trie.CountingStringTrie(["foo", "bar", "foobar"])
+    expected = {
+        (1, "b"),
+        (1, "ba"),
+        (1, "bar"),
+        (2, "f"),
+        (2, "fo"),
+        (2, "foo"),
+        (1, "foob"),
+        (1, "fooba"),
+        (1, "foobar"),
+    }
+    for string in trie:
+        assert string in expected
+        print(string)
+        expected.remove(string)
+    assert not expected
+
+
 def test_bytes_trie_init():
     assert str(cbor2_dns.trie.BytesTrie()) == "{}"
     assert str(cbor2_dns.trie.BytesTrie([b"foo", b"bar", b"foobar"])) == (
@@ -188,3 +218,23 @@ def test_bytes_trie_in():
     assert b"foo" not in trie
     assert b"test" in trie
     assert b"testing" in trie
+
+
+def test_counting_bytes_trie_iter():
+    trie = cbor2_dns.trie.CountingBytesTrie([b"foo", b"bar", b"foobar"])
+    expected = {
+        (1, b"b"),
+        (1, b"ba"),
+        (1, b"bar"),
+        (2, b"f"),
+        (2, b"fo"),
+        (2, b"foo"),
+        (1, b"foob"),
+        (1, b"fooba"),
+        (1, b"foobar"),
+    }
+    for string in trie:
+        assert string in expected
+        print(string)
+        expected.remove(string)
+    assert not expected

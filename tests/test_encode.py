@@ -157,3 +157,12 @@ def test_encoder_encode(wire, orig_query, exp_cbor):
         res = fp.getvalue()
         pprint.pprint(cbor2.loads(res))
         assert res == exp_cbor
+
+
+def test_encoder_encode_packed():
+    with io.BytesIO() as fp:
+        encoder = cbor2_dns.encode.Encoder(fp, packed=True)
+        encoder.encode(TEST_VECTOR[2][0][0], None)
+        print(encoder.tries[str])
+        print([(k, v.count) for k, v in encoder.tries[str].root.items()])
+        print(encoder.tries[bytes])
