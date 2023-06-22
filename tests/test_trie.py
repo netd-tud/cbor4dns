@@ -1,3 +1,6 @@
+# pylint: disable=missing-function-docstring,missing-module-docstring
+
+
 import pytest
 
 import cbor2_dns.trie

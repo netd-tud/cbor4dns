@@ -19,10 +19,11 @@ version = {attr = "cbor2_dns.__version__"}
 omit = ["dist/*", "docs/*", "env/*", "build/*", "*.egg"]
 
 [tool.codespell]
-skip = '*.bib,*.egg,./.git,./.tox,./build,./dist,./docs/_build,./env,./.pytest_cache'
+skip = '*.bib,*.egg,./.git,./.tox,./build,./dist,./docs/_build,./env,./.pytest_cache,./tests'
 
 [tool.flake8]
 max-line-length = 88
+ignore = "E203,W503"
 exclude = ".tox,build,dist,docs,env,*.egg"
 
 [tool.pylint]
