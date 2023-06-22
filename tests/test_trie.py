@@ -6,8 +6,40 @@ import pytest
 import cbor2_dns.trie
 
 
+def test_trie_node():
+    node = cbor2_dns.trie.TrieNode()
+    node.add_child("b")
+    assert list(node.iter_children()) == ["b"]
+    assert not node.has_child("a")
+    assert node.get_child("a") is None
+    assert node.has_child("b")
+    assert node.get_child("b") == cbor2_dns.trie.TrieNode()
+    node.remove_child("a")
+    assert list(node.iter_children()) == ["b"]
+    node.remove_child("b")
+    assert not list(node.iter_children())
+
+
+def test_counting_trie_node():
+    node = cbor2_dns.trie.CountingTrieNode()
+    node.add_child("b")
+    assert list(node.iter_children()) == ["b"]
+    node.add_child("b")
+    assert list(node.iter_children()) == ["b"]
+    assert not node.has_child("a")
+    assert node.get_child("a") is None
+    assert node.has_child("b")
+    assert node.get_child("b") == cbor2_dns.trie.CountingTrieNode()
+    node.remove_child("a")
+    assert list(node.iter_children()) == ["b"]
+    node.remove_child("b")
+    assert list(node.iter_children()) == ["b"]
+    node.remove_child("b")
+    assert not list(node.iter_children())
+
+
 def test_string_trie_init():
-    assert str(cbor2_dns.trie.StringTrie()) == "{}"
+    assert repr(cbor2_dns.trie.StringTrie()) == "<StringTrie: []>"
     assert str(cbor2_dns.trie.StringTrie(["foo", "bar", "foobar"])) == (
         """{'b': {'a': {'r': {None: {}}}},
  'f': {'o': {'o': {None: {}, 'b': {'a': {'r': {None: {}}}}}}}}"""
@@ -57,6 +89,12 @@ def test_string_trie_remove():
     assert "foo" in trie
     assert "bar" in trie
     assert "foobar" in trie
+    trie.remove("foox")
+    # trie should be unchanged
+    assert "test" not in trie
+    assert "foo" in trie
+    assert "bar" in trie
+    assert "foobar" in trie
     trie.remove("foob")
     # trie should be unchanged
     assert "test" not in trie
@@ -80,9 +118,22 @@ def test_string_trie_iter():
     expected = {"b", "ba", "bar", "f", "fo", "foo", "foob", "fooba", "foobar"}
     for string in trie:
         assert string in expected
-        print(string)
         expected.remove(string)
     assert not expected
+
+
+def exp_root_children(trie, root_children, root_children_counts):
+    root_childs = 0
+    count_checked = {c: False for c in root_children}
+    for child in trie.root.iter_children():
+        assert child in root_children
+        for exp_child in root_children:
+            if child == exp_child:
+                assert trie.root[child].count == root_children_counts[child]
+                count_checked[child] = True
+        assert count_checked[child]
+        root_childs += 1
+    assert root_childs == len(root_children)
 
 
 def test_counting_string_trie_remove():
@@ -91,71 +142,46 @@ def test_counting_string_trie_remove():
     assert "foo" in trie
     assert "bar" in trie
     assert "foobar" in trie
-    root_childs = 0
-    for child in trie.root.iter_children():
-        assert child in ["f", "b"]
-        if child == "f":
-            trie.root[child].count == 2
-        if child == "b":
-            trie.root[child].count == 2
-        root_childs += 1
-    assert root_childs == 2
+    exp_root_children(trie, ["f", "b"], {"f": 2, "b": 2})
+
+    trie.remove("foox")
+    # trie should be unchanged
+    assert "test" not in trie
+    assert "foo" in trie
+    assert "bar" in trie
+    assert "foobar" in trie
+    exp_root_children(trie, ["f", "b"], {"f": 2, "b": 2})
+
     trie.remove("foob")
     # trie should be unchanged
     assert "test" not in trie
     assert "foo" in trie
     assert "bar" in trie
     assert "foobar" in trie
-    root_childs = 0
-    for child in trie.root.iter_children():
-        assert child in ["f", "b"]
-        if child == "f":
-            trie.root[child].count == 2
-        if child == "b":
-            trie.root[child].count == 2
-        root_childs += 1
-    assert root_childs == 2
+    exp_root_children(trie, ["f", "b"], {"f": 2, "b": 2})
+
     trie.remove("foo")
     assert "test" not in trie
     assert "foo" not in trie
     assert "bar" in trie
     assert "foobar" in trie
-    root_childs = 0
-    for child in trie.root.iter_children():
-        assert child in ["f", "b"]
-        if child == "f":
-            trie.root[child].count == 1
-        if child == "b":
-            trie.root[child].count == 2
-        root_childs += 1
-    assert root_childs == 2
+    exp_root_children(trie, ["f", "b"], {"f": 1, "b": 2})
+
     trie.remove("bar")
     assert "test" not in trie
     assert "foo" not in trie
     # we only removed one instance of "bar"
     assert "bar" in trie
     assert "foobar" in trie
-    root_childs = 0
-    for child in trie.root.iter_children():
-        assert child in ["f", "b"]
-        if child == "f":
-            trie.root[child].count == 1
-        if child == "b":
-            trie.root[child].count == 1
-        root_childs += 1
-    assert root_childs == 2
+    exp_root_children(trie, ["f", "b"], {"f": 1, "b": 1})
+
     trie.remove("bar")
     assert "test" not in trie
     assert "foo" not in trie
     # now bar is actually removed
     assert "bar" not in trie
     assert "foobar" in trie
-    root_childs = 0
-    for child in trie.root.iter_children():
-        assert child in ["f"]
-        trie.root[child].count == 1
-        root_childs += 1
-    assert root_childs == 1
+    exp_root_children(trie, ["f"], {"f": 1})
 
 
 def test_counting_string_trie_iter():
@@ -173,7 +199,6 @@ def test_counting_string_trie_iter():
     }
     for string in trie:
         assert string in expected
-        print(string)
         expected.remove(string)
     assert not expected
 
@@ -238,6 +263,5 @@ def test_counting_bytes_trie_iter():
     }
     for string in trie:
         assert string in expected
-        print(string)
         expected.remove(string)
     assert not expected

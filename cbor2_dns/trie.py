@@ -3,8 +3,6 @@ Provides the trie data structure.
 """
 
 import enum
-import itertools
-import re
 import pprint
 
 
@@ -12,6 +10,7 @@ class TrieSearchResult(enum.Enum):
     """
     Results for a Trie::search.
     """
+
     NOT_FOUND = 0
     PREFIX_FOUND = 1
     MATCH_FOUND = 2
@@ -22,26 +21,39 @@ class TrieNode(dict):
         for k in self.keys():
             yield k
 
-    def get_child(self, child):
-        return self[child]
+    @property
+    def state(self):
+        return True
+
+    def get_child(self, child, child_state=None):
+        return self.get(child, None)
 
     def add_child(self, child):
         return self.setdefault(child, type(self)())
-
-    def set_child(self, child, subtree):
-        self[child] = subtree
-        return subtree
 
     def has_child(self, child):
         return child in self
 
     def remove_child(self, child):
-        del self[child]
+        if child in self:
+            del self[child]
 
 
 class CountingTrieNode(TrieNode):
     def __init__(self):
         self.count = 0
+
+    @property
+    def state(self):
+        return self.count
+
+    def get_child(self, child, child_state=None):
+        if child_state is None:
+            return super().get_child(child, child_state=child_state)
+        child_node = super().get_child(child)
+        if child_node and child_node.state != child_state:
+            return None
+        return child
 
     def add_child(self, child):
         res = super().add_child(child)
@@ -49,7 +61,7 @@ class CountingTrieNode(TrieNode):
         return res
 
     def remove_child(self, child):
-        if hasattr(self[child], "count"):
+        if child in self and hasattr(self[child], "count"):
             self[child].count -= 1
             if not self[child].count:
                 super().remove_child(child)
@@ -66,6 +78,7 @@ class BaseTrie:
     {}
     >>> Trie(["foo", "bar", "foobar"])
     """
+
     _end_marker = None
     _trie_type = str
     _trie_node_class = TrieNode
@@ -78,6 +91,9 @@ class BaseTrie:
 
     def __str__(self):
         return pprint.pformat(self.root)
+
+    def __repr__(self):
+        return f"<{type(self).__name__}: {list(self)}>"
 
     def __eq__(self, other):
         return self.root == other.root
@@ -114,8 +130,7 @@ class BaseTrie:
                 res_parts.extend([res] * (len(node) - 1))
                 for key in sorted(
                     node.keys(),
-                    key=lambda k: self._trie_type() if k is None else
-                    self._get_char(k),
+                    key=lambda k: self._trie_type() if k is None else self._get_char(k),
                 ):
                     visited.append((key, node[key]))
 
@@ -155,23 +170,26 @@ class BaseTrie:
             current_node = current_node.add_child(char)
         current_node.add_child(self._end_marker)
 
-    def _remove(self, node, string, depth=0):
-        if depth == len(string):
-            if node.has_child(self._end_marker):
-                node.remove_child(self._end_marker)
-            if not node:
-                node = None
-            return node
-        key = string[depth]
-        node.set_child(key, self._remove(node.get_child(key), string, depth + 1))
-        if not node.get_child(key):
-            node.remove_child(key)
-        if not node:
-            node = None
-        return node
-
     def remove(self, string):
-        self._remove(self.root, string)
+        node = self.root
+        parents = list()
+        for i in range(len(string) + 1):
+            if i < len(string):
+                key = string[i]
+                parents.append((key, node, node.state))
+                node = node.get_child(key)
+                if node is None:
+                    # string not in trie
+                    return
+            elif node.has_child(self._end_marker):
+                node.remove_child(self._end_marker)
+            else:
+                # string not in trie
+                return
+        while parents:
+            key, node, child_state = parents.pop()
+            if not node.get_child(key, child_state):
+                node.remove_child(key)
 
 
 class StringTrie(BaseTrie):
