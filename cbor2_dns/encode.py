@@ -298,6 +298,10 @@ def ref_size(value):
 
 
 class OccurranceCounter:
+    VALUE_REF = lambda a, b: a == b  # noqa: E731
+    STRAIGHT_REF = lambda a, b: a.startswith(b)  # noqa: E731
+    INVERTED_REF = lambda a, b: a.endswith(b)  # noqa: E731
+
     def __init__(self):
         self.bytes_counter = trie.CountingBytesTrie()
         self.str_counter = trie.CountingStringTrie()
@@ -318,13 +322,18 @@ class OccurranceCounter:
         for occurrences, value in self.bytes_counter:
             yield occurrences, value, len(value) + _cbor_length_field_length(
                 len(value)
-            ), lambda a, b: a.startswith(b)
+            ), OccurranceCounter.STRAIGHT_REF
         for occurrences, value in self.str_counter:
             yield occurrences, value[::-1], len(value) + _cbor_length_field_length(
                 len(value)
-            ), lambda a, b: a.endswith(b)
+            ), OccurranceCounter.INVERTED_REF
         for value, occurrences in self.int_counter.items():
-            yield occurrences, value, cbor_int_length(value), lambda a, b: a == b
+            yield (
+                occurrences,
+                value,
+                cbor_int_length(value),
+                OccurranceCounter.VALUE_REF,
+            )
 
 
 class DNSResponse:
@@ -389,26 +398,32 @@ class DefaultPackingTableConstructor:
         counted = [(0, 1, None, None)]
         for occurrences, value, value_len, op in obj.count():
             if occurrences <= 1:
+                # exclude from packing table if value only occurs once
                 continue
             last_occurrences = counted[-1][1]
             last_value = counted[-1][3]
             savings = (occurrences - 1) * (value_len - 1)
             if savings <= 0:
+                # exclude if there are negative savings
                 continue
+            # append if it is a new value, update if it only is a super-set of the
+            # previous value
             if (
                 type(last_value) == type(value)
                 and last_occurrences == occurrences
                 and op(value, last_value)
             ):
-                counted[-1] = (savings, occurrences, value_len, value)
+                counted[-1] = (savings, occurrences, value_len, value, op)
             else:
-                counted.append((savings, occurrences, value_len, value))
-        # counted = sorted(counted[1:], reverse=True)
+                counted.append((savings, occurrences, value_len, value, op))
         res = []
-        for _, _, value_len, value in sorted(
+        # Filter out values which length is shorter than the resulting
+        # value reference length
+        for _, _, value_len, value, op in sorted(
             counted[1:], reverse=True, key=lambda v: (v[1], v[0])
         ):
-            if len(res) >= value_len:
+            if op is OccurranceCounter.VALUE_REF and ref_size(len(res)) >= value_len:
+                # TODO: also check if prefix/suffix is shorter
                 continue
             res.append(value)
         # Room for optimization: check if affixes in res really bring the desired
@@ -495,11 +510,12 @@ class Encoder:
 
             def encode_int(self, value):
                 if outer.packing_table:
-                    for idx, prefix in enumerate(outer.packing_table):
+                    for idx, val in enumerate(outer.packing_table):
                         if (
                             not self.encoding_packing_table
-                            and isinstance(prefix, int)
-                            and value == prefix
+                            and isinstance(val, int)
+                            and val == value
+                            # TODO: check if ref_shared_item yields shorter CBOR code
                         ):
                             self.ref_shared_item(value, idx)
                             return
@@ -534,6 +550,7 @@ class Encoder:
                             elif value.endswith(suffix) and len(suffix) > max_match[1]:
                                 max_match = idx, len(suffix)
                     if max_match != (-1, 0):
+                        # TODO: check if ref_inverted_rump yields shorter CBOR code
                         value = value[: -max_match[1]]
                         self.ref_inverted_rump(value, max_match[0])
                         return
