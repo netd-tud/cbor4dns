@@ -3,17 +3,17 @@
 
 import pytest
 
-import cbor2_dns.trie
+import cbor4dns.trie
 
 
 def test_trie_node():
-    node = cbor2_dns.trie.TrieNode()
+    node = cbor4dns.trie.TrieNode()
     node.add_child("b")
     assert list(node.iter_children()) == ["b"]
     assert not node.has_child("a")
     assert node.get_child("a") is None
     assert node.has_child("b")
-    assert node.get_child("b") == cbor2_dns.trie.TrieNode()
+    assert node.get_child("b") == cbor4dns.trie.TrieNode()
     node.remove_child("a")
     assert list(node.iter_children()) == ["b"]
     node.remove_child("b")
@@ -21,7 +21,7 @@ def test_trie_node():
 
 
 def test_counting_trie_node():
-    node = cbor2_dns.trie.CountingTrieNode()
+    node = cbor4dns.trie.CountingTrieNode()
     node.add_child("b")
     assert list(node.iter_children()) == ["b"]
     node.add_child("b")
@@ -29,7 +29,7 @@ def test_counting_trie_node():
     assert not node.has_child("a")
     assert node.get_child("a") is None
     assert node.has_child("b")
-    assert node.get_child("b") == cbor2_dns.trie.CountingTrieNode()
+    assert node.get_child("b") == cbor4dns.trie.CountingTrieNode()
     node.remove_child("a")
     assert list(node.iter_children()) == ["b"]
     node.remove_child("b")
@@ -39,19 +39,19 @@ def test_counting_trie_node():
 
 
 def test_string_trie_init():
-    assert repr(cbor2_dns.trie.StringTrie()) == "<StringTrie: []>"
-    assert str(cbor2_dns.trie.StringTrie(["foo", "bar", "foobar"])) == (
+    assert repr(cbor4dns.trie.StringTrie()) == "<StringTrie: []>"
+    assert str(cbor4dns.trie.StringTrie(["foo", "bar", "foobar"])) == (
         """{'b': {'a': {'r': {None: {}}}},
  'f': {'o': {'o': {None: {}, 'b': {'a': {'r': {None: {}}}}}}}}"""
     )
 
 
 def test_string_trie_insert():
-    trie = cbor2_dns.trie.StringTrie()
+    trie = cbor4dns.trie.StringTrie()
     assert str(trie) == "{}"
     trie.insert("testing")
     assert str(trie) == "{'t': {'e': {'s': {'t': {'i': {'n': {'g': {None: {}}}}}}}}}"
-    assert trie == cbor2_dns.trie.StringTrie(["testing"])
+    assert trie == cbor4dns.trie.StringTrie(["testing"])
     with pytest.raises(TypeError):
         trie.insert(1)
     with pytest.raises(TypeError):
@@ -59,21 +59,21 @@ def test_string_trie_insert():
 
 
 def test_string_trie_search():
-    trie = cbor2_dns.trie.StringTrie()
-    assert trie.search("test") == cbor2_dns.trie.TrieSearchResult.NOT_FOUND
-    assert trie.search("testing") == cbor2_dns.trie.TrieSearchResult.NOT_FOUND
+    trie = cbor4dns.trie.StringTrie()
+    assert trie.search("test") == cbor4dns.trie.TrieSearchResult.NOT_FOUND
+    assert trie.search("testing") == cbor4dns.trie.TrieSearchResult.NOT_FOUND
     trie.insert("testing")
-    assert trie.search("test") == cbor2_dns.trie.TrieSearchResult.PREFIX_FOUND
-    assert trie.search("testing") == cbor2_dns.trie.TrieSearchResult.MATCH_FOUND
+    assert trie.search("test") == cbor4dns.trie.TrieSearchResult.PREFIX_FOUND
+    assert trie.search("testing") == cbor4dns.trie.TrieSearchResult.MATCH_FOUND
     trie.insert("test")
-    assert trie.search("test") == cbor2_dns.trie.TrieSearchResult.MATCH_FOUND
-    assert trie.search("testing") == cbor2_dns.trie.TrieSearchResult.MATCH_FOUND
+    assert trie.search("test") == cbor4dns.trie.TrieSearchResult.MATCH_FOUND
+    assert trie.search("testing") == cbor4dns.trie.TrieSearchResult.MATCH_FOUND
     with pytest.raises(TypeError):
         trie.search(1)
 
 
 def test_string_trie_in():
-    trie = cbor2_dns.trie.StringTrie(["testing"])
+    trie = cbor4dns.trie.StringTrie(["testing"])
     assert "foo" not in trie
     assert "test" not in trie
     assert "testing" in trie
@@ -84,7 +84,7 @@ def test_string_trie_in():
 
 
 def test_string_trie_remove():
-    trie = cbor2_dns.trie.StringTrie(["foo", "bar", "foobar"])
+    trie = cbor4dns.trie.StringTrie(["foo", "bar", "foobar"])
     assert "test" not in trie
     assert "foo" in trie
     assert "bar" in trie
@@ -114,7 +114,7 @@ def test_string_trie_remove():
 
 
 def test_string_trie_iter():
-    trie = cbor2_dns.trie.StringTrie(["foo", "bar", "foobar"])
+    trie = cbor4dns.trie.StringTrie(["foo", "bar", "foobar"])
     expected = {"b", "ba", "bar", "f", "fo", "foo", "foob", "fooba", "foobar"}
     for string in trie:
         assert string in expected
@@ -137,7 +137,7 @@ def exp_root_children(trie, root_children, root_children_counts):
 
 
 def test_counting_string_trie_remove():
-    trie = cbor2_dns.trie.CountingStringTrie(["foo", "bar", "bar", "foobar"])
+    trie = cbor4dns.trie.CountingStringTrie(["foo", "bar", "bar", "foobar"])
     assert "test" not in trie
     assert "foo" in trie
     assert "bar" in trie
@@ -185,7 +185,7 @@ def test_counting_string_trie_remove():
 
 
 def test_counting_string_trie_iter():
-    trie = cbor2_dns.trie.CountingStringTrie(["foo", "bar", "foobar"])
+    trie = cbor4dns.trie.CountingStringTrie(["foo", "bar", "foobar"])
     expected = {
         (1, "b"),
         (1, "ba"),
@@ -204,19 +204,19 @@ def test_counting_string_trie_iter():
 
 
 def test_bytes_trie_init():
-    assert str(cbor2_dns.trie.BytesTrie()) == "{}"
-    assert str(cbor2_dns.trie.BytesTrie([b"foo", b"bar", b"foobar"])) == (
+    assert str(cbor4dns.trie.BytesTrie()) == "{}"
+    assert str(cbor4dns.trie.BytesTrie([b"foo", b"bar", b"foobar"])) == (
         """{98: {97: {114: {None: {}}}},
  102: {111: {111: {None: {}, 98: {97: {114: {None: {}}}}}}}}"""
     )
 
 
 def test_bytes_trie_insert():
-    trie = cbor2_dns.trie.BytesTrie()
+    trie = cbor4dns.trie.BytesTrie()
     assert str(trie) == "{}"
     trie.insert(b"testing")
     assert str(trie) == "{116: {101: {115: {116: {105: {110: {103: {None: {}}}}}}}}}"
-    assert trie == cbor2_dns.trie.BytesTrie([b"testing"])
+    assert trie == cbor4dns.trie.BytesTrie([b"testing"])
     with pytest.raises(TypeError):
         trie.insert(1)
     with pytest.raises(TypeError):
@@ -224,21 +224,21 @@ def test_bytes_trie_insert():
 
 
 def test_bytes_trie_search():
-    trie = cbor2_dns.trie.BytesTrie()
-    assert trie.search(b"test") == cbor2_dns.trie.TrieSearchResult.NOT_FOUND
-    assert trie.search(b"testing") == cbor2_dns.trie.TrieSearchResult.NOT_FOUND
+    trie = cbor4dns.trie.BytesTrie()
+    assert trie.search(b"test") == cbor4dns.trie.TrieSearchResult.NOT_FOUND
+    assert trie.search(b"testing") == cbor4dns.trie.TrieSearchResult.NOT_FOUND
     trie.insert(b"testing")
-    assert trie.search(b"test") == cbor2_dns.trie.TrieSearchResult.PREFIX_FOUND
-    assert trie.search(b"testing") == cbor2_dns.trie.TrieSearchResult.MATCH_FOUND
+    assert trie.search(b"test") == cbor4dns.trie.TrieSearchResult.PREFIX_FOUND
+    assert trie.search(b"testing") == cbor4dns.trie.TrieSearchResult.MATCH_FOUND
     trie.insert(b"test")
-    assert trie.search(b"test") == cbor2_dns.trie.TrieSearchResult.MATCH_FOUND
-    assert trie.search(b"testing") == cbor2_dns.trie.TrieSearchResult.MATCH_FOUND
+    assert trie.search(b"test") == cbor4dns.trie.TrieSearchResult.MATCH_FOUND
+    assert trie.search(b"testing") == cbor4dns.trie.TrieSearchResult.MATCH_FOUND
     with pytest.raises(TypeError):
         trie.search(1)
 
 
 def test_bytes_trie_in():
-    trie = cbor2_dns.trie.BytesTrie([b"testing"])
+    trie = cbor4dns.trie.BytesTrie([b"testing"])
     assert b"foo" not in trie
     assert b"test" not in trie
     assert b"testing" in trie
@@ -249,7 +249,7 @@ def test_bytes_trie_in():
 
 
 def test_counting_bytes_trie_iter():
-    trie = cbor2_dns.trie.CountingBytesTrie([b"foo", b"bar", b"foobar"])
+    trie = cbor4dns.trie.CountingBytesTrie([b"foo", b"bar", b"foobar"])
     expected = {
         (1, b"b"),
         (1, b"ba"),

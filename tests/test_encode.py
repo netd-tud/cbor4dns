@@ -7,7 +7,7 @@ import pprint
 import cbor2
 import pytest
 
-import cbor2_dns.encode
+import cbor4dns.encode
 
 QUERY_AAAA = (
     b"\xd5\xcd\x01\x20\x00\x01\x00\x00\x00\x00\x00\x01\x07\x65\x78\x61"
@@ -239,13 +239,13 @@ def test_cbor_int_length(integer):
         cbor_encoder = cbor2.CBOREncoder(file)
         cbor_encoder.encode_int(integer)
         cbor_bytes = file.getvalue()
-    assert len(cbor_bytes) == cbor2_dns.encode.cbor_int_length(integer)
+    assert len(cbor_bytes) == cbor4dns.encode.cbor_int_length(integer)
 
 
 @pytest.mark.parametrize("wire, orig_query, packed, exp_cbor", TEST_VECTOR)
 def test_encoder_encode(wire, orig_query, packed, exp_cbor):
     with io.BytesIO() as file:
-        encoder = cbor2_dns.encode.Encoder(file, packed=packed)
+        encoder = cbor4dns.encode.Encoder(file, packed=packed)
         encoder.encode(wire, orig_query)
         res = file.getvalue()
         pprint.pprint(cbor2.loads(res))
