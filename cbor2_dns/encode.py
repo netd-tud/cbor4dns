@@ -460,14 +460,14 @@ class Encoder:
                     return super().encode([outer.packing_table, obj])
                 return super().encode(obj)
 
-            def _ref_shared_item(self, value, idx):
+            def ref_shared_item(self, value, idx):
                 if idx < 16:
                     self.encode_simple_value((idx,))
                 else:
                     n = (15 - idx) // 2 if idx % 2 else (idx - 16) // 2
                     self.encode_semantic(cbor2.CBORTag(6, n))
 
-            def _ref_straight_rump(self, value, idx):
+            def ref_straight_rump(self, value, idx):
                 if idx == 0:
                     self.encode_semantic(cbor2.CBORTag(6, value))
                 elif idx < 32:
@@ -481,7 +481,7 @@ class Encoder:
                 else:  # pragma: no-cover
                     raise RuntimeError("Should not be reached")
 
-            def _ref_inverted_rump(self, value, idx):
+            def ref_inverted_rump(self, value, idx):
                 if idx < 8:
                     self.encode_semantic(cbor2.CBORTag(216 + idx, value))
                 elif idx < 1024:
@@ -501,7 +501,7 @@ class Encoder:
                             and isinstance(prefix, int)
                             and value == prefix
                         ):
-                            self._ref_shared_item(value, idx)
+                            self.ref_shared_item(value, idx)
                             return
                 super().encode_int(value)
 
@@ -511,7 +511,7 @@ class Encoder:
                     for idx, prefix in enumerate(outer.packing_table):
                         if isinstance(prefix, bytes) and value is not prefix:
                             if value == prefix:
-                                self._ref_shared_item(value, idx)
+                                self.ref_shared_item(value, idx)
                                 return
                             elif (
                                 value.startswith(prefix) and len(prefix) > max_match[1]
@@ -519,7 +519,7 @@ class Encoder:
                                 max_match = idx, len(prefix)
                     if max_match != (-1, 0):
                         value = value[max_match[1] :]
-                        self._ref_straight_rump(value, max_match[0])
+                        self.ref_straight_rump(value, max_match[0])
                         return
                 super().encode_bytestring(value)
 
@@ -529,13 +529,13 @@ class Encoder:
                     for idx, suffix in enumerate(outer.packing_table):
                         if isinstance(suffix, str) and value is not suffix:
                             if value == suffix:
-                                self._ref_shared_item(value, idx)
+                                self.ref_shared_item(value, idx)
                                 return
                             elif value.endswith(suffix) and len(suffix) > max_match[1]:
                                 max_match = idx, len(suffix)
                     if max_match != (-1, 0):
                         value = value[: -max_match[1]]
-                        self._ref_inverted_rump(value, max_match[0])
+                        self.ref_inverted_rump(value, max_match[0])
                         return
                 super().encode_string(value)
 
@@ -616,7 +616,6 @@ class Encoder:
             if orig_query:
                 if isinstance(orig_query, bytes):
                     orig_query = cbor2.loads(orig_query)
-                print(orig_query)
                 orig_question = Question.from_obj(
                     [q for q in orig_query if isinstance(q, list)][0]
                 )
