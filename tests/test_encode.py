@@ -18,7 +18,7 @@ TEST_VECTOR = (
         None,
         b"\x84\x19\xd5\xcd\x19\x01 \x81kexample.org\x81W\x00\x00)\x04\xd0\x00"
         b"\x00\x00\x00\x00\x0c\x00\n\x00\x08\x99!\te3\xa3f\xb5",
-        id="query example.org AAAA"
+        id="query example.org AAAA",
     ),
     pytest.param(
         b"\x70\x75\x01\x20\x00\x01\x00\x00\x00\x00\x00\x01\x07\x65\x78\x61"
@@ -28,7 +28,7 @@ TEST_VECTOR = (
         None,
         b"\x84\x19pu\x19\x01 \x82kexample.org\x01\x81W\x00\x00)\x04\xd0"
         b"\x00\x00\x00\x00\x00\x0c\x00\n\x00\x08t^l\x10\xa8F\x19\xa4",
-        id="query example.org A"
+        id="query example.org A",
     ),
     pytest.param(
         b"\xb5\x3e\x81\x80\x00\x01\x00\x01\x00\x06\x00\x0d\x07\x65\x78\x61"
@@ -87,7 +87,7 @@ TEST_VECTOR = (
         b"\x01\x05\x00\x00\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01X'\x00\x00)"
         b"\x10\x00\x00\x00\x00\x00\x00\x1c\x00\n\x00\x18\x16\x19\xc4\x7fn\xd6\xc4\xab"
         b"\xef\xec\xe8yd5F\xd3{\x9c\xb7\xd5a\xaa\xd9\xc2",
-        id="response example.org AAAA (w/o original query)"
+        id="response example.org AAAA (w/o original query)",
     ),
     pytest.param(
         b"\xb5\x3e\x81\x80\x00\x01\x00\x01\x00\x06\x00\x0d\x07\x65\x78\x61"
@@ -147,25 +147,62 @@ TEST_VECTOR = (
         b"\x05\x00\x00\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01X'\x00\x00)\x10"
         b"\x00\x00\x00\x00\x00\x00\x1c\x00\n\x00\x18\x16\x19\xc4\x7fn\xd6\xc4\xab\xef"
         b"\xec\xe8yd5F\xd3{\x9c\xb7\xd5a\xaa\xd9\xc2",
-        id="response example.org AAAA (w/ original query)"
+        id="response example.org AAAA (w/ original query)",
     ),
 )
 
 
+@pytest.mark.parametrize(
+    "integer",
+    [
+        23,
+        24,
+        255,
+        256,
+        65535,
+        65536,
+        4294967295,
+        4294967296,
+        18446744073709551615,
+        18446744073709551616,
+        1111111111111111111111111111111111111111111111111111111111111111111,
+        -24,
+        -25,
+        -256,
+        -257,
+        -65536,
+        -65537,
+        -4294966296,
+        -4294967297,
+        -18446744073709551616,
+        -18446744073709551617,
+        -1111111111111111111111111111111111111111111111111111111111111111111,
+    ],
+)
+def test_cbor_int_length(integer):
+    with io.BytesIO() as file:
+        cbor_encoder = cbor2.CBOREncoder(file)
+        cbor_encoder.encode_int(integer)
+        cbor_bytes = file.getvalue()
+    assert len(cbor_bytes) == cbor2_dns.encode.cbor_int_length(integer)
+
+
 @pytest.mark.parametrize("wire, orig_query, exp_cbor", TEST_VECTOR)
 def test_encoder_encode(wire, orig_query, exp_cbor):
-    with io.BytesIO() as fp:
-        encoder = cbor2_dns.encode.Encoder(fp)
+    with io.BytesIO() as file:
+        encoder = cbor2_dns.encode.Encoder(file)
         encoder.encode(wire, orig_query)
-        res = fp.getvalue()
+        res = file.getvalue()
         pprint.pprint(cbor2.loads(res))
         assert res == exp_cbor
 
 
-def test_encoder_encode_packed():
-    with io.BytesIO() as fp:
-        encoder = cbor2_dns.encode.Encoder(fp, packed=True)
-        encoder.encode(TEST_VECTOR[2][0][0], None)
-        print(encoder.tries[str])
-        print([(k, v.count) for k, v in encoder.tries[str].root.items()])
-        print(encoder.tries[bytes])
+@pytest.mark.parametrize("wire, orig_query, unused", TEST_VECTOR)
+def test_encoder_encode_packed(wire, orig_query, unused):
+    # pylint: disable=unused-argument
+    with io.BytesIO() as file:
+        encoder = cbor2_dns.encode.Encoder(file, packed=True)
+        encoder.encode(wire, orig_query)
+        res = file.getvalue()
+        pprint.pprint(cbor2.loads(res))
+        print(len(res), len(wire), len(res) / len(wire))

@@ -28,7 +28,7 @@ class TypeSpec:
     def __init__(
         self,
         record_type: RdataType = RdataType.AAAA,
-        record_class: RdataClass = RdataClass.IN
+        record_class: RdataClass = RdataClass.IN,
     ):
         self.record_type = record_type
         self.record_class = record_class
@@ -101,7 +101,6 @@ class RR(HasTypeSpec):
         ttl: int,
         rdata: Union[int, bytes, str],
         question: Question,
-        tries=None,
     ):
         if ttl < 0:
             raise ValueError(f"ttl={ttl} must not be < 0")
@@ -110,7 +109,6 @@ class RR(HasTypeSpec):
         self.name = name
         self.ttl = ttl
         self.rdata = rdata
-        self.tries = tries
 
     def walk(self):
         for obj in self.to_obj():
@@ -119,30 +117,22 @@ class RR(HasTypeSpec):
     def to_obj(self) -> list:
         res = []
         if self.question.name != self.name:
-            if self.tries:
-                self.tries[str].insert(self.name.to_text(omit_final_dot=True)[::-1])
-            res.append(self.name)
+            res.append(self.name.to_text(omit_final_dot=True).strip("."))
         res.append(self.ttl)
         res.extend(self.type_spec.to_obj())
         if self.rdata.rdtype in TEXT_STRING_TYPES:
             res.append(self.rdata.to_text(omit_final_dot=True).strip("."))
-            if self.tries:
-                self.tries[str].insert(res[-1][::-1])
         else:
             res.append(self.rdata.to_wire())
-            if self.tries:
-                self.tries[bytes].insert(res[-1])
         return res
 
     @staticmethod
-    def rrs_from_rrset(rrset, question: Question, tries=None) -> list:
+    def rrs_from_rrset(rrset, question: Question) -> list:
         if isinstance(rrset, dns.rrset.RRset):
             if rrset.rdtype in [RdataType.OPT, RdataType.TSIG]:
                 with io.BytesIO() as fp:
                     rrset.to_wire(fp)
                     byts = fp.getvalue()
-                    if tries:
-                        tries[bytes].insert(byts)
                     return [byts]
             return [
                 RR(
@@ -151,24 +141,21 @@ class RR(HasTypeSpec):
                     rrset.ttl,
                     rr,
                     question,
-                    tries,
                 )
                 for rr in rrset
             ]
         else:
             res = [rrset.to_wire()]
-            if tries:
-                tries[bytes].insert(res[0])
             return res
 
     @staticmethod
-    def rrs_from_section(section: List, question: Question, tries=None) -> list:
-        return list(
+    def rrs_from_section(section: List, question: Question) -> list:
+        res = list(
             itertools.chain.from_iterable(
-                RR.rrs_from_rrset(rrset, question, tries=tries)
-                for rrset in section
+                RR.rrs_from_rrset(rrset, question) for rrset in section
             ),
         )
+        return res
 
 
 class IDFlagsBase:
@@ -272,6 +259,74 @@ class ResponseIDFlags(IDFlagsBase):
         super().__init__(0x8000, id, flags)
 
 
+def _cbor_length_field_length(length):
+    if length < 24:
+        return 1
+    elif length < 256:
+        return 2
+    elif length < 65536:
+        return 3
+    elif length < 4294967296:
+        return 5
+    else:
+        return 9
+
+
+def cbor_int_length(value):
+    # Big integers (2 ** 64 and over)
+    if value >= 18446744073709551616 or value < -18446744073709551616:
+        if value < 0:
+            value = -(value + 1)
+
+        bytes_len = (value.bit_length() + 7) // 8
+        return 1 + _cbor_length_field_length(bytes_len) + bytes_len
+    elif value >= 0:
+        return _cbor_length_field_length(value)
+    else:
+        return _cbor_length_field_length(-(value + 1))
+
+
+def ref_size(value):
+    if value < 16:
+        return 1
+    elif value < 64:
+        return 2
+    elif value < 528:
+        return 3
+    else:
+        return 4
+
+
+class OccurranceCounter:
+    def __init__(self):
+        self.bytes_counter = trie.CountingBytesTrie()
+        self.str_counter = trie.CountingStringTrie()
+        self.int_counter = dict()
+
+    def add(self, value):
+        if isinstance(value, bytes):
+            self.bytes_counter.insert(value)
+        elif isinstance(value, str):
+            self.str_counter.insert(value[::-1])
+        elif isinstance(value, int):
+            if value not in self.int_counter:
+                self.int_counter[value] = 1
+            else:
+                self.int_counter[value] += 1
+
+    def __iter__(self):
+        for occurrences, value in self.bytes_counter:
+            yield occurrences, value, len(value) + _cbor_length_field_length(
+                len(value)
+            ), lambda a, b: a.startswith(b)
+        for occurrences, value in self.str_counter:
+            yield occurrences, value[::-1], len(value) + _cbor_length_field_length(
+                len(value)
+            ), lambda a, b: a.endswith(b)
+        for value, occurrences in self.int_counter.items():
+            yield occurrences, value, cbor_int_length(value), lambda a, b: a == b
+
+
 class DNSResponse:
     def __init__(
         self,
@@ -297,8 +352,14 @@ class DNSResponse:
                     yield obj
             else:
                 yield obj
-        for obj in self.extra:
+        for obj in self.extra.walk():
             yield obj
+
+    def count(self) -> OccurranceCounter:
+        counter = OccurranceCounter()
+        for obj in self.walk():
+            counter.add(obj)
+        return counter
 
     def to_obj(self) -> list:
         res = self.id_flags.to_obj()
@@ -309,12 +370,55 @@ class DNSResponse:
         return res
 
 
+class PackingTable:
+    def __init__(self, lst):
+        self.lst = lst
+
+    def __iter__(self):
+        return iter(self.lst)
+
+    def __getitem__(self, idx):
+        return self.lst[idx]
+
+
 class DefaultPackingTableConstructor:
     def __init__(self, encoder):
         self.encoder = encoder
 
     def get_packing_table(self, obj):
-        pass
+        counted = [(0, 1, None, None)]
+        for occurrences, value, value_len, op in obj.count():
+            if occurrences <= 1:
+                continue
+            last_occurrences = counted[-1][1]
+            last_value = counted[-1][3]
+            savings = (occurrences - 1) * (value_len - 1)
+            if savings <= 0:
+                continue
+            if (
+                type(last_value) == type(value)
+                and last_occurrences == occurrences
+                and op(value, last_value)
+            ):
+                counted[-1] = (savings, occurrences, value_len, value)
+            else:
+                counted.append((savings, occurrences, value_len, value))
+        # counted = sorted(counted[1:], reverse=True)
+        res = []
+        for _, _, value_len, value in sorted(
+            counted[1:], reverse=True, key=lambda v: (v[1], v[0])
+        ):
+            if len(res) >= value_len:
+                continue
+            res.append(value)
+        # Room for optimization: check if affixes in res really bring the desired
+        # savings, e.g. in our tests, having
+        # - 0.org.afilias-nst.info
+        # - c0.org.afilias-nst.info
+        # - a0.org.afilias-nst.info
+        # in res and compressing the latter two is less effective than not having the
+        # 0.org.afilias-nst.info
+        return PackingTable(res)
 
 
 class Encoder:
@@ -327,22 +431,38 @@ class Encoder:
             packed, fp=fp, default=self.default_encoder
         )
         if self.packed:
-            self.tries = {
+            self.counters = {
                 str: trie.CountingStringTrie(),
                 bytes: trie.CountingBytesTrie(),
+                None: dict(),
             }
             self.packing_table = None
         else:
-            self.tries = None
+            self.counters = None
             self.packing_table = None
 
     def cbor_encoder_factory(self, packed, *args, **kwargs):
         outer = self
 
         class PackedCBOREncoder(cbor2.CBOREncoder):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                # update _encoders to overriding methods
+                self._encoders[int] = type(self).encode_int
+                self._encoders[bytes] = type(self).encode_bytestring
+                self._encoders[str] = type(self).encode_string
+                # set to anything but 0 or 1 to use custom encoding
+                self.enc_style = 0xD0
+                self.encoding_packing_table = False
+
+            def encode(self, obj):
+                if isinstance(obj, DNSResponse) and outer.packing_table:
+                    return super().encode([outer.packing_table, obj])
+                return super().encode(obj)
+
             def _ref_shared_item(self, value, idx):
                 if idx < 16:
-                    self.encode_simple_value(idx)
+                    self.encode_simple_value((idx,))
                 else:
                     n = (15 - idx) // 2 if idx % 2 else (idx - 16) // 2
                     self.encode_semantic(cbor2.CBORTag(6, n))
@@ -353,9 +473,7 @@ class Encoder:
                 elif idx < 32:
                     self.encode_semantic(cbor2.CBORTag(224 + idx, value))
                 elif idx < 4096:
-                    self.encode_semantic(
-                        cbor2.CBORTag(28704 + (idx - 32), value)
-                    )
+                    self.encode_semantic(cbor2.CBORTag(28704 + (idx - 32), value))
                 elif idx < (1 << 28):
                     self.encode_semantic(
                         cbor2.CBORTag(1879052288 + (idx - 4096), value)
@@ -367,9 +485,7 @@ class Encoder:
                 if idx < 8:
                     self.encode_semantic(cbor2.CBORTag(216 + idx, value))
                 elif idx < 1024:
-                    self.encode_semantic(
-                        cbor2.CBORTag(27647 + (idx - 8), value)
-                    )
+                    self.encode_semantic(cbor2.CBORTag(27647 + (idx - 8), value))
                 elif idx < (1 << 26):
                     self.encode_semantic(
                         cbor2.CBORTag(1811940352 + (idx - 1024), value)
@@ -380,33 +496,47 @@ class Encoder:
             def encode_int(self, value):
                 if outer.packing_table:
                     for idx, prefix in enumerate(outer.packing_table):
-                        if isinstance(prefix, int) and value == prefix:
+                        if (
+                            not self.encoding_packing_table
+                            and isinstance(prefix, int)
+                            and value == prefix
+                        ):
                             self._ref_shared_item(value, idx)
                             return
                 super().encode_int(value)
 
             def encode_bytestring(self, value):
                 if outer.packing_table:
+                    max_match = -1, 0
                     for idx, prefix in enumerate(outer.packing_table):
-                        if isinstance(prefix, bytes) and value == prefix:
-                            self._ref_shared_item(value, idx)
-                            return
-                        elif value.startswith(prefix):
-                            value = value[len(prefix):]
-                            self._ref_straight_rump(value, idx)
-                            return
+                        if isinstance(prefix, bytes) and value is not prefix:
+                            if value == prefix:
+                                self._ref_shared_item(value, idx)
+                                return
+                            elif (
+                                value.startswith(prefix) and len(prefix) > max_match[1]
+                            ):
+                                max_match = idx, len(prefix)
+                    if max_match != (-1, 0):
+                        value = value[max_match[1] :]
+                        self._ref_straight_rump(value, max_match[0])
+                        return
                 super().encode_bytestring(value)
 
             def encode_string(self, value):
                 if outer.packing_table:
+                    max_match = -1, 0
                     for idx, suffix in enumerate(outer.packing_table):
-                        if isinstance(suffix, str) and value == suffix:
-                            self._ref_shared_item(value, idx)
-                            return
-                        elif value.endswith(suffix):
-                            value = value[:-len(suffix)]
-                            self._ref_inverted_rump(value, idx)
-                            return
+                        if isinstance(suffix, str) and value is not suffix:
+                            if value == suffix:
+                                self._ref_shared_item(value, idx)
+                                return
+                            elif value.endswith(suffix) and len(suffix) > max_match[1]:
+                                max_match = idx, len(suffix)
+                    if max_match != (-1, 0):
+                        value = value[: -max_match[1]]
+                        self._ref_inverted_rump(value, max_match[0])
+                        return
                 super().encode_string(value)
 
         if packed:
@@ -419,8 +549,14 @@ class Encoder:
             cbor_encoder.encode(value.to_obj())
         elif isinstance(value, dns.name.Name):
             cbor_encoder.encode(value.to_text(omit_final_dot=True))
+        elif isinstance(value, PackingTable):
+            try:
+                cbor_encoder.encoding_packing_table = True
+                cbor_encoder.encode(value.lst)
+            finally:
+                cbor_encoder.encoding_packing_table = False
         else:
-            raise ValueError(f"Can not encode {value:r} (type {type(value)})")
+            raise ValueError(f"Can not encode {value} (type {type(value)})")
 
     @staticmethod
     def _get_question(msg):
@@ -435,11 +571,11 @@ class Encoder:
         )
 
     def _get_additional(self, msg, question):
-        additional = RR.rrs_from_section(msg.additional, question, self.tries)
+        additional = RR.rrs_from_section(msg.additional, question)
         if msg.opt:
-            additional += RR.rrs_from_section([msg.opt], question, self.tries)
+            additional += RR.rrs_from_section([msg.opt], question)
         if msg.tsig:
-            additional += RR.rrs_from_section(msg.tsig, question, self.tries)
+            additional += RR.rrs_from_section(msg.tsig, question)
         return additional
 
     def _encode_query(self, msg: dns.message.Message):
@@ -448,28 +584,23 @@ class Encoder:
             QueryIDFlags(msg.id, msg.flags),
             question,
             ExtraSections(
-                authority=RR.rrs_from_section(msg.authority, question, self.tries),
+                authority=RR.rrs_from_section(msg.authority, question),
                 additional=self._get_additional(msg, question),
             ),
         )
 
     def _encode_response(
-        self,
-        msg: dns.message.Message,
-        orig_question: Optional[Question]
+        self, msg: dns.message.Message, orig_question: Optional[Question]
     ):
         question = self._get_question(msg)
         if orig_question and question == orig_question:
             question = None
-        elif self.tries:
-            self.tries[str].insert(question.name.to_text(omit_final_dot=True)[::-1])
         return DNSResponse(
             ResponseIDFlags(msg.id, msg.flags),
             question,
-            RR.rrs_from_section(msg.answer, orig_question or question, self.tries),
+            RR.rrs_from_section(msg.answer, orig_question or question),
             ExtraSections(
-                authority=RR.rrs_from_section(msg.authority, orig_question or question,
-                                              self.tries),
+                authority=RR.rrs_from_section(msg.authority, orig_question or question),
                 additional=self._get_additional(msg, orig_question or question),
             ),
         )
@@ -477,7 +608,7 @@ class Encoder:
     def encode(
         self,
         msg: Union[bytes, dns.message.Message],
-        orig_query: Optional[Union[bytes, list]] = None
+        orig_query: Optional[Union[bytes, list]] = None,
     ):
         if not isinstance(msg, dns.message.Message):
             msg = dns.message.from_wire(msg, one_rr_per_rrset=True)
@@ -485,16 +616,16 @@ class Encoder:
             if orig_query:
                 if isinstance(orig_query, bytes):
                     orig_query = cbor2.loads(orig_query)
+                print(orig_query)
                 orig_question = Question.from_obj(
                     [q for q in orig_query if isinstance(q, list)][0]
                 )
             else:
                 orig_question = None
             res = self._encode_response(msg, orig_question)
+            if self.packed:
+                packing_table_constr = self.packing_table_constructor_type(self)
+                self.packing_table = packing_table_constr.get_packing_table(res)
         else:
             res = self._encode_query(msg)
-        if self.packed:
-            # TODO: Henne-Ei-Problem :(
-            packing_table_constr = self.packing_table_constructor_type(self)
-            self.packing_table = packing_table_constr.get_packing_table(res)
         self.cbor_encoder.encode(res)
