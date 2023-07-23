@@ -197,6 +197,14 @@ class ExtraSections:
         self.authority = authority
         self.additional = additional
 
+    def __bool__(self):
+        return (
+            self.authority is not None
+            and len(self.authority) > 0
+            and self.additional is not None
+            and len(self.additional) > 0
+        )
+
     def walk(self):
         if self.authority:
             for memb in self.authority:
@@ -610,16 +618,17 @@ class Encoder:
         self, msg: dns.message.Message, orig_question: Optional[Question]
     ):
         question = self._get_question(msg)
-        if orig_question and question == orig_question:
+        extra_sections = ExtraSections(
+            authority=RR.rrs_from_section(msg.authority, orig_question or question),
+            additional=self._get_additional(msg, orig_question or question),
+        )
+        if orig_question and question == orig_question and not extra_sections:
             question = None
         return DNSResponse(
             ResponseIDFlags(msg.id, msg.flags),
             question,
             RR.rrs_from_section(msg.answer, orig_question or question),
-            ExtraSections(
-                authority=RR.rrs_from_section(msg.authority, orig_question or question),
-                additional=self._get_additional(msg, orig_question or question),
-            ),
+            extra_sections,
         )
 
     def encode(
