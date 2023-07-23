@@ -3,6 +3,7 @@ Provides the decoder for encoding DNS messages to application/dns+cbor
 """
 
 import enum
+import struct
 from typing import Optional, Union
 
 import cbor2
@@ -22,16 +23,20 @@ class Decoder:
         self.fp = fp
         self.cbor_decoder = cbor2.CBORDecoder(fp)
 
-    def _init_msg_type(self, obj, msg_type):
+    def _init_msg_type(self, obj, msg_type, flags_default=0):
         offset = 0
         if isinstance(obj[0], int):
             res = msg_type(obj[0])
             offset += 1
             if isinstance(obj[1], int):
-                res.flags = obj[1]
+                flags = obj[1]
                 offset += 1
+            else:
+                flags = flags_default
         else:
             res = msg_type(0)
+            flags = flags_default
+        res.flags = flags
         return offset, res
 
     def _decode_question(self, cbor_question):
@@ -61,21 +66,41 @@ class Decoder:
             else:
                 res.sections[section].append(wire_reader.message.sections[section][0])
         elif isinstance(cbor_rr, list):
-            if len(cbor_rr) == 2:
-                ttl = cbor_rr[0]
-                rdata = cbor_rr[1]
-                if not isinstance(rdata, bytes):
-                    raise ValueError(
-                        f"Unexpected rdata type in {section!r} record {cbor_rr!r}"
-                    )
+            if len(cbor_rr) < 2 or len(cbor_rr) > 5:
+                raise ValueError(f"Resource record of unexpected length")
+            if isinstance(cbor_rr[0], int):
                 name = name
-                rdatatype = dns.rdatatype.AAAA
-                rdataclass = dns.rdataclass.IN
-            res = dns.rrset.RRset(name, rdataclass, rdatatype)
-            res.update_ttl(ttl)
-            # TBD
-            res.add(rdata)
-            return res
+                ttl = cbor_rr[0]
+                offset = 1
+            else:
+                name = dns.name.from_text(cbor_rr[0])
+                ttl = cbor_rr[1]
+                offset = 2
+
+            if isinstance(cbor_rr[offset], int):
+                rdtype = cbor_rr[offset]
+                offset += 1
+                if isinstance(cbor_rr[offset], int):
+                    rdclass = cbor_rr[offset]
+                    offset += 1
+                else:
+                    rdclass = dns.rdataclass.IN
+            else:
+                rdtype = dns.rdatatype.AAAA
+                rdclass = dns.rdataclass.IN
+
+            rdata = cbor_rr[offset]
+            if isinstance(rdata, str):
+                rdata = dns.name.from_text(rdata).to_wire()
+            elif isinstance(rdata, int):
+                # TODO: check if this suffices
+                rdata = struct.pack("!l", rdata)
+            rrset = dns.rrset.RRset(name, rdclass, rdtype)
+            rd = dns.rdata.from_wire(rdclass, rdtype, rdata, 0, len(rdata))
+            rrset.add(rd, ttl)
+            res.sections[section].append(rrset)
+        else:
+            raise ValueError(f"Unexpected resource record type for {cbor_rr!r}")
 
     def decode_query(self, obj: list = None) -> dns.message.QueryMessage:
         if obj is None:
@@ -119,7 +144,7 @@ class Decoder:
             obj = self.cbor_decoder.decode()
         if not isinstance(obj, list):
             raise ValueError(f"Unexpected response object {obj!r}")
-        offset, res = self._init_msg_type(obj, dns.message.Message)
+        offset, res = self._init_msg_type(obj, dns.message.Message, 0x8000)
         sections = len(obj) - offset
         if sections == 1:
             if orig_query is None:

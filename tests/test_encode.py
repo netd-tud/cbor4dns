@@ -99,6 +99,7 @@ RESPONSE_A = (
 TEST_VECTOR = (
     pytest.param(
         QUERY_AAAA,
+        True,
         None,
         False,
         QUERY_AAAA_CBOR,
@@ -106,6 +107,7 @@ TEST_VECTOR = (
     ),
     pytest.param(
         QUERY_A,
+        True,
         None,
         False,
         QUERY_A_CBOR,
@@ -113,6 +115,7 @@ TEST_VECTOR = (
     ),
     pytest.param(
         RESPONSE_AAAA,
+        False,
         None,
         False,
         RESPONSE_AAAA_CBOR,
@@ -120,6 +123,7 @@ TEST_VECTOR = (
     ),
     pytest.param(
         RESPONSE_AAAA,
+        False,
         QUERY_AAAA_CBOR,
         False,
         RESPONSE_AAAA_CBOR,
@@ -127,6 +131,7 @@ TEST_VECTOR = (
     ),
     pytest.param(
         QUERY_AAAA,
+        True,
         None,
         True,
         QUERY_AAAA_CBOR,
@@ -134,6 +139,7 @@ TEST_VECTOR = (
     ),
     pytest.param(
         QUERY_A,
+        True,
         None,
         True,
         QUERY_A_CBOR,
@@ -141,6 +147,7 @@ TEST_VECTOR = (
     ),
     pytest.param(
         RESPONSE_AAAA,
+        False,
         None,
         True,
         b"\x82\x91\x1a\x00\x01\xb1\xf0corgu.org.afilias-nst.info\xd8\xd9q.org.afilias"
@@ -164,6 +171,7 @@ TEST_VECTOR = (
     ),
     pytest.param(
         RESPONSE_AAAA,
+        False,
         QUERY_AAAA_CBOR,
         True,
         b"\x82\x91\x1a\x00\x01\xb1\xf0corgu.org.afilias-nst.info\xd8\xd9q.org.afilias"
@@ -223,8 +231,8 @@ def test_cbor_int_length(integer):
     assert len(cbor_bytes) == cbor4dns.encode.cbor_int_length(integer)
 
 
-@pytest.mark.parametrize("wire, orig_query, packed, exp_cbor", TEST_VECTOR)
-def test_encoder_encode(wire, orig_query, packed, exp_cbor):
+@pytest.mark.parametrize("wire, is_query, orig_query, packed, exp_cbor", TEST_VECTOR)
+def test_encoder_encode(wire, is_query, orig_query, packed, exp_cbor):
     with io.BytesIO() as file:
         encoder = cbor4dns.encode.Encoder(file, packed=packed)
         encoder.encode(wire, orig_query)
