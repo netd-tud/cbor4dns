@@ -67,7 +67,7 @@ class Decoder:
                 res.sections[section].append(wire_reader.message.sections[section][0])
         elif isinstance(cbor_rr, list):
             if len(cbor_rr) < 2 or len(cbor_rr) > 5:
-                raise ValueError(f"Resource record of unexpected length")
+                raise ValueError(f"Resource record of unexpected length {cbor_rr!r}")
             if isinstance(cbor_rr[0], int):
                 name = name
                 ttl = cbor_rr[0]

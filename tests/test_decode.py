@@ -10,8 +10,8 @@ import cbor4dns.decode
 from .test_encode import TEST_VECTOR
 
 
-@pytest.mark.parametrize("exp_res, is_query, orig_query, packed, cbor", TEST_VECTOR)
-def test_decoder_decode(exp_res, is_query, orig_query, packed, cbor):
+@pytest.mark.parametrize("exp_res, is_query, _, packed, cbor", TEST_VECTOR)
+def test_decoder_decode(exp_res, is_query, _, packed, cbor):
     if packed:
         return  # not implemented yet
     with io.BytesIO(cbor) as file:

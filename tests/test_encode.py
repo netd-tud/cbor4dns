@@ -231,8 +231,8 @@ def test_cbor_int_length(integer):
     assert len(cbor_bytes) == cbor4dns.encode.cbor_int_length(integer)
 
 
-@pytest.mark.parametrize("wire, is_query, orig_query, packed, exp_cbor", TEST_VECTOR)
-def test_encoder_encode(wire, is_query, orig_query, packed, exp_cbor):
+@pytest.mark.parametrize("wire, _, orig_query, packed, exp_cbor", TEST_VECTOR)
+def test_encoder_encode(wire, _, orig_query, packed, exp_cbor):
     with io.BytesIO() as file:
         encoder = cbor4dns.encode.Encoder(file, packed=packed)
         encoder.encode(wire, orig_query)
