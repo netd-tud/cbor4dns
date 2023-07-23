@@ -95,7 +95,9 @@ class Decoder:
             authority = obj[offset + 1]
             additional = obj[offset + 2]
         else:
-            raise ValueError(f"Unexpected number of sections {sections} in query object {obj!r}")
+            raise ValueError(
+                f"Unexpected number of sections {sections} in query object {obj!r}"
+            )
         name = res.question[0].name
         for rr in authority:
             self._decode_rr(name, dns.message.AUTHORITY, rr, res)
@@ -107,7 +109,7 @@ class Decoder:
         self,
         orig_query: Optional[Union[bytes, list]] = None,
         packed: bool = False,
-        obj: list = None
+        obj: list = None,
     ) -> dns.message.Message:
         if orig_query is not None:
             if isinstance(orig_query, bytes):
@@ -139,7 +141,9 @@ class Decoder:
                 additional = obj[offset + 3]
                 authority = obj[offset + 2]
         else:
-            raise ValueError(f"Unexpected number of sections {sections} in response object {obj!r}")
+            raise ValueError(
+                f"Unexpected number of sections {sections} in response object {obj!r}"
+            )
         name = res.question[0].name
         for rr in answer:
             self._decode_rr(name, dns.message.ANSWER, rr, res)
@@ -149,13 +153,12 @@ class Decoder:
             self._decode_rr(name, dns.message.ADDITIONAL, rr, res)
         return res
 
-
     def decode(
         self,
         msg_type: MsgType,
         orig_query: Optional[Union[bytes, list]] = None,
         packed: bool = False,
-        obj: list = None
+        obj: list = None,
     ) -> dns.message.Message:
         if msg_type == MsgType.QUERY:
             return self.decode_query(obj=obj)

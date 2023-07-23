@@ -17,9 +17,7 @@ def test_decoder_decode():
     with io.BytesIO(cbor) as file:
         decoder = cbor4dns.decode.Decoder(file)
         res = decoder.decode(
-            cbor4dns.decode.MsgType.QUERY
-            if is_query
-            else cbor4dns.decode.MsgType.QUERY
+            cbor4dns.decode.MsgType.QUERY if is_query else cbor4dns.decode.MsgType.QUERY
         )
         assert res.id == exp_res.id
         assert res.flags == exp_res.flags
