@@ -417,7 +417,7 @@ class DefaultPackingTableConstructor:
             # append if it is a new value, update if it only is a super-set of the
             # previous value
             if (
-                type(last_value) == type(value)
+                type(last_value) is type(value)
                 and last_occurrences == occurrences
                 and op(value, last_value)
             ):
