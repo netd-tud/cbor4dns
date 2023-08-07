@@ -4,7 +4,7 @@ Provides the decoder for encoding DNS messages to application/dns+cbor
 
 import enum
 import struct
-from typing import Optional, Union
+from typing import Optional, Union, Tuple
 
 import cbor2
 import dns.message
@@ -18,16 +18,132 @@ class MsgType(enum.Enum):
     RESPONSE = 0x1
 
 
+class DerefType(enum.Enum):
+    NONE = 0x0
+    VALUE = 0x1
+    STRAIGHT = 0x2
+    INVERTED = 0x3
+
+
 class Decoder:
     def __init__(self, fp):
         self.fp = fp
         self.cbor_decoder = cbor2.CBORDecoder(fp)
+        self.packing_table = None
+
+    @classmethod
+    def is_ref(cls, obj):
+        if isinstance(obj, cbor2.CBORSimpleValue):
+            return 0 <= obj.value <= 15
+        if isinstance(obj, cbor2.CBORTag):
+            return (
+                obj.tag == 6
+                or 216 <= obj.tag <= 255
+                or 27647 <= obj <= 28671
+                or 28704 <= obj <= 32767
+                or 1811940352 <= obj <= 1879048191
+                or 1879052288 <= obj <= 2147483647
+            )
+        return False
+
+    def ref_to_type_and_idx(self, obj) -> Tuple[DerefType, int]:
+        if isinstance(obj, cbor2.CBORSimpleValue):
+            if 0 <= obj.value <= 15:
+                deref_type = DerefType.VALUE
+                idx = obj.value
+            else:
+                return DerefType.NONE, 0
+        elif isinstance(obj, cbor2.CBORTag):
+            if obj.tag == 6:
+                if isinstance(obj.value, int):
+                    deref_type = DerefType.VALUE
+                    if obj.value >= 0:
+                        idx = 16 + (2 * obj.value)
+                    else:
+                        idx = 16 - (2 * obj.value) - 1
+                else:
+                    deref_type = DerefType.STRAIGHT
+                    idx = 0
+            elif 216 <= obj.tag <= 223:
+                deref_type = DerefType.INVERTED
+                idx = obj.tag - 216
+            elif 224 <= obj.tag <= 255:
+                deref_type = DerefType.STRAIGHT
+                idx = obj.tag - 224
+            elif 27647 <= obj.tag <= 28671:
+                deref_type = DerefType.INVERTED
+                idx = obj.tag - 27647 + 8
+            elif 28704 <= obj.tag <= 32767:
+                deref_type = DerefType.STRAIGHT
+                idx = obj.tag - 28704 + 32
+            elif 1811940352 <= obj.tag <= 1879048191:
+                deref_type = DerefType.INVERTED
+                idx = obj.tag - 1811940352 + 1024
+            elif 1879052288 <= obj.tag <= 2147483647:
+                deref_type = DerefType.STRAIGHT
+                idx = obj.tag - 1879052288 + 4096
+            else:
+                return DerefType.NONE, 0
+        else:
+            return DerefType.NONE, 0
+        if not isinstance(self.packing_table, list):
+            raise ValueError(f"No packing table found for {obj!r}")
+        if idx < 0 or idx >= len(self.packing_table):
+            raise IndexError(
+                f"Packing table {self.packing_table} too short for {obj!r}"
+                f"(index = {idx})"
+            )
+        return deref_type, idx
+
+    def deref(self, obj):
+        if self.packing_table is None:
+            # don't have a packing table, just deref as object
+            return obj
+        deref_type, idx = self.ref_to_type_and_idx(obj)
+        if deref_type == DerefType.VALUE:
+            return self.packing_table[idx]
+        elif deref_type == DerefType.STRAIGHT:
+            assert isinstance(obj, cbor2.CBORTag)
+            return self.packing_table[idx] + obj.value
+        elif deref_type == DerefType.INVERTED:
+            assert isinstance(obj, cbor2.CBORTag)
+            return obj.value + self.packing_table[idx]
+        else:
+            # not a reference
+            return obj
+
+    def _unpack_packing_table(self):
+        if not isinstance(self.packing_table, list):
+            return
+        ref_in_packing_table = True
+        iterations = 0
+        while ref_in_packing_table and iterations < len(self.packing_table):
+            iterations += 1
+            ref_in_packing_table = False
+            for cur_idx in range(len(self.packing_table)):
+                deref_type, ref_idx = self.ref_to_type_and_idx(
+                    self.packing_table[cur_idx]
+                )
+                if deref_type == DerefType.NONE:
+                    continue
+                if self.is_ref(self.packing_table[ref_idx]):
+                    # referenced item is a reference as well, need to repeat iteration
+                    ref_in_packing_table = True
+                    continue
+                self.packing_table[cur_idx] = self.deref(self.packing_table[cur_idx])
+        if ref_in_packing_table:
+            raise ValueError(
+                "Potentially circular references detected in packing table "
+                f"{self.packing_table}"
+            )
 
     def _init_msg_type(self, obj, msg_type, flags_default=0):
         offset = 0
+        obj[0] = self.deref(obj[0])
         if isinstance(obj[0], int):
             res = msg_type(obj[0])
             offset += 1
+            obj[1] = self.deref(obj[1])
             if isinstance(obj[1], int):
                 flags = obj[1]
                 offset += 1
@@ -45,17 +161,20 @@ class Decoder:
             rdtype = dns.rdatatype.AAAA
         elif len(cbor_question) == 2:
             rdclass = dns.rdataclass.IN
-            rdtype = cbor_question[1]
+            rdtype = self.deref(cbor_question[1])
         elif len(cbor_question) == 3:
-            rdclass = cbor_question[2]
-            rdtype = cbor_question[1]
+            rdclass = self.deref(cbor_question[2])
+            rdtype = self.deref(cbor_question[1])
         else:
             raise ValueError(f"Invalid length for question {cbor_question!r}")
         return dns.rrset.RRset(
-            name=dns.name.from_text(cbor_question[0]), rdclass=rdclass, rdtype=rdtype
+            name=dns.name.from_text(self.deref(cbor_question[0])),
+            rdclass=rdclass,
+            rdtype=rdtype,
         )
 
     def _decode_rr(self, name, section, cbor_rr, res):
+        cbor_rr = self.deref(cbor_rr)
         if isinstance(cbor_rr, bytes):
             wire_reader = dns.message._WireReader(cbor_rr, lambda msg: None)
             wire_reader.message = dns.message.Message()
@@ -68,18 +187,20 @@ class Decoder:
         elif isinstance(cbor_rr, list):
             if len(cbor_rr) < 2 or len(cbor_rr) > 5:
                 raise ValueError(f"Resource record of unexpected length {cbor_rr!r}")
+            cbor_rr[0] = self.deref(cbor_rr[0])
             if isinstance(cbor_rr[0], int):
                 name = name
                 ttl = cbor_rr[0]
                 offset = 1
             else:
                 name = dns.name.from_text(cbor_rr[0])
-                ttl = cbor_rr[1]
+                ttl = self.deref(cbor_rr[1])
                 offset = 2
-
+            cbor_rr[offset] = self.deref(cbor_rr[offset])
             if isinstance(cbor_rr[offset], int):
                 rdtype = cbor_rr[offset]
                 offset += 1
+                cbor_rr[offset] = self.deref(cbor_rr[offset])
                 if isinstance(cbor_rr[offset], int):
                     rdclass = cbor_rr[offset]
                     offset += 1
@@ -89,7 +210,7 @@ class Decoder:
                 rdtype = dns.rdatatype.AAAA
                 rdclass = dns.rdataclass.IN
 
-            rdata = cbor_rr[offset]
+            rdata = self.deref(cbor_rr[offset])
             if isinstance(rdata, str):
                 rdata = dns.name.from_text(rdata).to_wire()
             elif isinstance(rdata, int):
@@ -144,39 +265,53 @@ class Decoder:
             obj = self.cbor_decoder.decode()
         if not isinstance(obj, list):
             raise ValueError(f"Unexpected response object {obj!r}")
-        offset, res = self._init_msg_type(obj, dns.message.Message, 0x8000)
-        sections = len(obj) - offset
-        if sections == 1:
-            if orig_query is None:
+        try:
+            if packed:
+                if len(obj) != 2:
+                    raise ValueError(f"Unexpected packed representation {obj!r}")
+                if not isinstance(obj[0], list):
+                    raise ValueError(f"Unexpected packing table {obj[0]!r}")
+                self.packing_table = obj[0]
+                obj = obj[1]
+                if not isinstance(obj, list):
+                    raise ValueError(f"Unexpected response object {obj!r}")
+                self._unpack_packing_table()
+            offset, res = self._init_msg_type(obj, dns.message.Message, 0x8000)
+            sections = len(obj) - offset
+            if sections == 1:
+                if orig_query is None:
+                    raise ValueError(
+                        f"No question provided for {obj!r} with orig_question is None"
+                    )
+                res.question = orig_query.question
+                answer = obj[offset]
+                additional = []
+                authority = []
+            elif sections <= 4:
+                res.question = [self._decode_question(obj[offset])]
+                answer = obj[offset + 1]
+                additional = []
+                authority = []
+                if sections == 3:
+                    authority = obj[offset + 2]
+                elif sections == 4:
+                    additional = obj[offset + 3]
+                    authority = obj[offset + 2]
+            else:
                 raise ValueError(
-                    f"No question provided for {obj!r} with orig_question is None"
+                    f"Unexpected number of sections {sections} in response object "
+                    f"{obj!r}"
                 )
-            res.question = orig_query.question
-            answer = obj[offset]
-            additional = []
-            authority = []
-        elif sections <= 4:
-            res.question = [self._decode_question(obj[offset])]
-            answer = obj[offset + 1]
-            additional = []
-            authority = []
-            if sections == 3:
-                authority = obj[offset + 2]
-            elif sections == 4:
-                additional = obj[offset + 3]
-                authority = obj[offset + 2]
-        else:
-            raise ValueError(
-                f"Unexpected number of sections {sections} in response object {obj!r}"
-            )
-        name = res.question[0].name
-        for rr in answer:
-            self._decode_rr(name, dns.message.ANSWER, rr, res)
-        for rr in authority:
-            self._decode_rr(name, dns.message.AUTHORITY, rr, res)
-        for rr in additional:
-            self._decode_rr(name, dns.message.ADDITIONAL, rr, res)
-        return res
+            name = res.question[0].name
+            for rr in answer:
+                self._decode_rr(name, dns.message.ANSWER, rr, res)
+            for rr in authority:
+                self._decode_rr(name, dns.message.AUTHORITY, rr, res)
+            for rr in additional:
+                self._decode_rr(name, dns.message.ADDITIONAL, rr, res)
+            return res
+        finally:
+            self.packing_table = None
 
     def decode(
         self,
