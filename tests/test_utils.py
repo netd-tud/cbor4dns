@@ -4,6 +4,7 @@ import pytest
 
 import cbor4dns.utils
 
+
 @pytest.mark.parametrize(
     "inp, exp_res",
     (
@@ -18,7 +19,7 @@ import cbor4dns.utils
         (0b0000000000000001, 0b1000000000000000),
         (0b1101011101101001, 0b1001011011101011),
         (0b0101100011001011, 0b1101001100011010),
-    )
+    ),
 )
 def test_reverse_u16(inp, exp_res):
     assert cbor4dns.utils.reverse_u16(inp) == exp_res

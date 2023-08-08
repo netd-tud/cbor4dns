@@ -205,13 +205,11 @@ class Decoder:
             flags = utils.reverse_u16(self.deref(opt_rr[offset + 1])) if rem > 0 else 0
             rcode = self.deref(opt_rr[offset + 2]) if rem > 1 else 0
             version = self.deref(opt_rr[offset + 3]) if rem > 2 else 0
-            ttl = ((rcode & 0xff) << 24)
-            ttl |= ((version & 0xff) << 16)
-            ttl |= (flags & 0xffff)
+            ttl = (rcode & 0xFF) << 24
+            ttl |= (version & 0xFF) << 16
+            ttl |= flags & 0xFFFF
             rrset = dns.rrset.RRset(
-                dns.name.from_text("."),
-                udp_payload_size,
-                dns.rdatatype.OPT
+                dns.name.from_text("."), udp_payload_size, dns.rdatatype.OPT
             )
             rrset.add(opt, ttl)
             res.sections[section].append(rrset)
