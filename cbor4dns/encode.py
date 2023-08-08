@@ -4,7 +4,7 @@ Provides the encoder for encoding DNS messages to application/dns+cbor
 
 import io
 import itertools
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 import cbor2
 import dns.message
@@ -14,6 +14,7 @@ from dns.rdataclass import RdataClass
 from dns.rdatatype import RdataType
 
 from . import trie
+from . import utils
 
 
 TEXT_STRING_TYPES = [
@@ -93,7 +94,69 @@ class Question(HasTypeSpec):
         return cls(name, TypeSpec(record_type, record_class))
 
 
+class OptRcodeVFlags:
+    reverse_flags = True
+
+    def __init__(self, ttl):
+        self.rcode = (ttl & 0xF000) >> 24
+        self.version = (ttl & 0x0F00) >> 16
+        self._flags = ttl & 0x00FF
+
+    @property
+    def flags(self):
+        if self.reverse_flags:
+            return utils.reverse_u16(self._flags)
+        return self._flags
+
+    def walk(self):
+        for obj in self.to_obj():
+            yield obj
+
+    def to_obj(self):
+        if self.version == 0:
+            if self._flags == 0:
+                if self.rcode == 0:
+                    return []
+                return [self.rcode]
+            return [self.rcode, self.flags]
+        return [self.rcode, self.flags, self.version]
+
+
+class OptRR:
+    opt_tag = 20
+    unset_reserved_flags = True
+
+    def __init__(
+        self,
+        udp_payload_size: int,
+        options: List[Tuple[int, bytes]],
+        rcode_v_flags: OptRcodeVFlags,
+    ):
+        self.udp_payload_size = udp_payload_size
+        self.options = options
+        self.rcode_v_flags = rcode_v_flags
+
+    def walk(self):
+        for obj in self.to_obj():
+            if isinstance(obj, list):
+                for otype, oval in obj:
+                    yield otype
+                    yield oval
+            else:
+                yield obj
+
+    def to_obj(self):
+        res = []
+        if self.udp_payload_size > 512:
+            res.append(self.udp_payload_size)
+        res.append(self.options)
+        res.extend(self.rcode_v_flags.to_obj())
+        return cbor2.CBORTag(self.opt_tag, res)
+
+
 class RR(HasTypeSpec):
+    encode_opts = True
+
     def __init__(
         self,
         name: str,
@@ -127,15 +190,36 @@ class RR(HasTypeSpec):
         return res
 
     @staticmethod
-    def rrs_from_rrset(rrset, question: Question) -> list:
+    def _parse_options(options):
+        res = []
+        for opt in options:
+            with io.BytesIO() as fp:
+                opt.to_wire(fp)
+                byts = fp.getvalue()
+                res.append((opt.otype, byts))
+        return res
+
+    @classmethod
+    def rrs_from_rrset(cls, rrset, question: Question) -> list:
         if isinstance(rrset, dns.rrset.RRset):
-            if rrset.rdtype in [RdataType.OPT, RdataType.TSIG]:
+            if cls.encode_opts and rrset.rdtype == RdataType.OPT:
+                return [
+                    OptRR(
+                        rr.payload,
+                        cls._parse_options(rr.options),
+                        OptRcodeVFlags(rrset.ttl),
+                    )
+                    for rr in rrset
+                ]
+            elif rrset.rdtype == RdataType.TSIG or (
+                not cls.encode_opts and rrset.rdtype == RdataType.OPT
+            ):
                 with io.BytesIO() as fp:
                     rrset.to_wire(fp)
                     byts = fp.getvalue()
                     return [byts]
             return [
-                RR(
+                cls(
                     rrset.name,
                     TypeSpec(rrset.rdtype, rrset.rdclass),
                     rrset.ttl,
@@ -148,11 +232,11 @@ class RR(HasTypeSpec):
             res = [rrset.to_wire()]
             return res
 
-    @staticmethod
-    def rrs_from_section(section: List, question: Question) -> list:
+    @classmethod
+    def rrs_from_section(cls, section: List, question: Question) -> list:
         res = list(
             itertools.chain.from_iterable(
-                RR.rrs_from_rrset(rrset, question) for rrset in section
+                cls.rrs_from_rrset(rrset, question) for rrset in section
             ),
         )
         return res
@@ -570,7 +654,7 @@ class Encoder:
 
     @staticmethod
     def default_encoder(cbor_encoder, value):
-        if isinstance(value, (DNSQuery, DNSResponse, Question, RR)):
+        if isinstance(value, (DNSQuery, DNSResponse, Question, RR, OptRR)):
             cbor_encoder.encode(value.to_obj())
         elif isinstance(value, dns.name.Name):
             cbor_encoder.encode(value.to_text(omit_final_dot=True))

@@ -7,10 +7,14 @@ import struct
 from typing import Optional, Union, Tuple
 
 import cbor2
+import dns.edns
 import dns.message
 import dns.name
 import dns.rdataclass
 import dns.rdatatype
+import dns.rdtypes.ANY.OPT
+
+from . import utils
 
 
 class MsgType(enum.Enum):
@@ -184,6 +188,33 @@ class Decoder:
             # TODO: tsig
             else:
                 res.sections[section].append(wire_reader.message.sections[section][0])
+        elif isinstance(cbor_rr, cbor2.CBORTag) and cbor_rr.tag == 20:
+            opt_rr = cbor_rr.value
+            opt_rr[0] = self.deref(opt_rr[0])
+            if isinstance(opt_rr[0], int):
+                udp_payload_size = opt_rr[0]
+                offset = 1
+            else:
+                udp_payload_size = 512
+                offset = 0
+            options = []
+            for otype, oval in opt_rr[offset]:
+                options.append(dns.edns.GenericOption(otype, oval))
+            opt = dns.rdtypes.ANY.OPT.OPT(udp_payload_size, dns.rdatatype.OPT, options)
+            rem = (len(opt_rr) - offset) - 1
+            flags = utils.reverse_u16(self.deref(opt_rr[offset + 1])) if rem > 0 else 0
+            rcode = self.deref(opt_rr[offset + 2]) if rem > 1 else 0
+            version = self.deref(opt_rr[offset + 3]) if rem > 2 else 0
+            ttl = ((rcode & 0xff) << 24)
+            ttl |= ((version & 0xff) << 16)
+            ttl |= (flags & 0xffff)
+            rrset = dns.rrset.RRset(
+                dns.name.from_text("."),
+                udp_payload_size,
+                dns.rdatatype.OPT
+            )
+            rrset.add(opt, ttl)
+            res.sections[section].append(rrset)
         elif isinstance(cbor_rr, list):
             if len(cbor_rr) < 2 or len(cbor_rr) > 5:
                 raise ValueError(f"Resource record of unexpected length {cbor_rr!r}")
