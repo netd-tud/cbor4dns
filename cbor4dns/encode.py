@@ -706,7 +706,7 @@ class Encoder:
             authority=RR.rrs_from_section(msg.authority, orig_question or question),
             additional=self._get_additional(msg, orig_question or question),
         )
-        if orig_question and question == orig_question and not extra_sections:
+        if orig_question and question == orig_question:
             question = None
         return DNSResponse(
             ResponseIDFlags(msg.id, msg.flags),

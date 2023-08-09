@@ -288,7 +288,7 @@ class Decoder:
     ) -> dns.message.Message:
         if orig_query is not None:
             if isinstance(orig_query, bytes):
-                orig_query = cbor2.decode(orig_query)
+                orig_query = cbor2.loads(orig_query)
             orig_query = self.decode_query(orig_query)
         if obj is None:
             obj = self.cbor_decoder.decode()
@@ -307,25 +307,28 @@ class Decoder:
                 self._unpack_packing_table()
             offset, res = self._init_msg_type(obj, dns.message.Message, 0x8000)
             sections = len(obj) - offset
-            if sections == 1:
-                if orig_query is None:
-                    raise ValueError(
-                        f"No question provided for {obj!r} with orig_question is None"
-                    )
-                res.question = orig_query.question
+            if sections <= 4:
+                question_section = 0
+                if (
+                    sections > 1
+                    and len(obj[offset]) > 0
+                    and not isinstance(obj[offset][0], list)
+                ):
+                    res.question = [self._decode_question(obj[offset])]
+                    offset += 1
+                    question_section += 1
+                else:
+                    if orig_query is None:
+                        raise ValueError(f"No question provided for {obj!r}")
+                    res.question = orig_query.question
                 answer = obj[offset]
                 additional = []
                 authority = []
-            elif sections <= 4:
-                res.question = [self._decode_question(obj[offset])]
-                answer = obj[offset + 1]
-                additional = []
-                authority = []
-                if sections == 3:
-                    authority = obj[offset + 2]
-                elif sections == 4:
-                    additional = obj[offset + 3]
-                    authority = obj[offset + 2]
+                if sections == 2 + question_section:
+                    authority = obj[offset + 1]
+                elif sections == 3 + question_section:
+                    additional = obj[offset + 2]
+                    authority = obj[offset + 1]
             else:
                 raise ValueError(
                     f"Unexpected number of sections {sections} in response object "
