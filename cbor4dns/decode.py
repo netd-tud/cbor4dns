@@ -145,17 +145,11 @@ class Decoder:
         offset = 0
         obj[0] = self.deref(obj[0])
         if isinstance(obj[0], int):
-            res = msg_type(obj[0])
+            flags = obj[0]
             offset += 1
-            obj[1] = self.deref(obj[1])
-            if isinstance(obj[1], int):
-                flags = obj[1]
-                offset += 1
-            else:
-                flags = flags_default
         else:
-            res = msg_type(0)
             flags = flags_default
+        res = msg_type(0)
         res.flags = flags
         return offset, res
 

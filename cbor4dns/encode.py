@@ -242,14 +242,12 @@ class RR(HasTypeSpec):
         return res
 
 
-class IDFlagsBase:
-    enforce_id_default: bool = False
+class FlagsBase:
     enforce_flags_default: bool = False
 
-    def __init__(self, default_flags: int, id: int = 0, flags: Optional[int] = None):
+    def __init__(self, default_flags: int, flags: Optional[int] = None):
         self.flags = default_flags if flags is None else flags
         self.default_flags = default_flags
-        self.id = id
 
     def walk(self):
         for obj in self.to_obj():
@@ -257,19 +255,16 @@ class IDFlagsBase:
 
     def to_obj(self) -> list:
         if not self.enforce_flags_default and self.flags != self.default_flags:
-            return [self.id, self.flags]
-        if not self.enforce_id_default and self.id != 0:
-            return [self.id]
+            return [self.flags]
         return []
 
 
-class QueryIDFlags(IDFlagsBase):
+class QueryFlags(FlagsBase):
     def __init__(
         self,
-        id: int = 0,
         flags: int = 0,
     ):
-        super().__init__(0x0000, id, flags)
+        super().__init__(0x0000, flags)
 
 
 class ExtraSections:
@@ -319,16 +314,16 @@ class ExtraSections:
 class DNSQuery:
     def __init__(
         self,
-        id_flags: QueryIDFlags,
+        flags: QueryFlags,
         question: Question,
         extra: ExtraSections,
     ):
-        self.id_flags = id_flags
+        self.flags = flags
         self.question = question
         self.extra = extra
 
     def walk(self):
-        for obj in self.id_flags.walk():
+        for obj in self.flags.walk():
             yield obj
         for obj in self.question.walk():
             yield obj
@@ -336,19 +331,18 @@ class DNSQuery:
             yield obj
 
     def to_obj(self) -> list:
-        res = self.id_flags.to_obj()
+        res = self.flags.to_obj()
         res.append(self.question)
         res.extend(self.extra.to_obj())
         return res
 
 
-class ResponseIDFlags(IDFlagsBase):
+class ResponseFlags(FlagsBase):
     def __init__(
         self,
-        id: int = 0,
         flags: int = 0,
     ):
-        super().__init__(0x8000, id, flags)
+        super().__init__(0x8000, flags)
 
 
 def _cbor_length_field_length(length):
@@ -431,18 +425,18 @@ class OccurranceCounter:
 class DNSResponse:
     def __init__(
         self,
-        id_flags: ResponseIDFlags,
+        flags: ResponseFlags,
         question: Optional[Question],
         answer: List[Union[RR, bytes]],
         extra: ExtraSections,
     ):
-        self.id_flags = id_flags
+        self.flags = flags
         self.question = question
         self.answer = answer
         self.extra = extra
 
     def walk(self):
-        for obj in self.id_flags.walk():
+        for obj in self.flags.walk():
             yield obj
         if self.question:
             for obj in self.question.walk():
@@ -463,7 +457,7 @@ class DNSResponse:
         return counter
 
     def to_obj(self) -> list:
-        res = self.id_flags.to_obj()
+        res = self.flags.to_obj()
         if self.question:
             res.append(self.question)
         res.append(self.answer)
@@ -690,7 +684,7 @@ class Encoder:
     def _encode_query(self, msg: dns.message.Message):
         question = self._get_question(msg)
         return DNSQuery(
-            QueryIDFlags(msg.id, msg.flags),
+            QueryFlags(msg.flags),
             question,
             ExtraSections(
                 authority=RR.rrs_from_section(msg.authority, question),
@@ -709,7 +703,7 @@ class Encoder:
         if orig_question and question == orig_question:
             question = None
         return DNSResponse(
-            ResponseIDFlags(msg.id, msg.flags),
+            ResponseFlags(msg.flags),
             question,
             RR.rrs_from_section(msg.answer, orig_question or question),
             extra_sections,
