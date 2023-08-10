@@ -98,9 +98,9 @@ class OptRcodeVFlags:
     reverse_flags = True
 
     def __init__(self, ttl):
-        self.rcode = (ttl & 0xF000) >> 24
-        self.version = (ttl & 0x0F00) >> 16
-        self._flags = ttl & 0x00FF
+        self.rcode = (ttl & 0xFF000000) >> 24
+        self.version = (ttl & 0x00FF0000) >> 16
+        self._flags = ttl & 0x0000FFFF
 
     @property
     def flags(self):
