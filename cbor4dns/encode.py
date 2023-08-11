@@ -94,19 +94,40 @@ class Question(HasTypeSpec):
         return cls(name, TypeSpec(record_type, record_class))
 
 
-class OptRcodeVFlags:
-    reverse_flags = True
+class FlagsBase:
+    enforce_flags_default: bool = False
+    reverse_flags: bool = False
 
-    def __init__(self, ttl):
-        self.rcode = (ttl & 0xFF000000) >> 24
-        self.version = (ttl & 0x00FF0000) >> 16
-        self._flags = ttl & 0x0000FFFF
+    def __init__(self, default_flags: int, flags: Optional[int] = None):
+        self._flags = default_flags if flags is None else flags
+        self._reversed_flags = None
+        self.default_flags = default_flags
 
     @property
     def flags(self):
         if self.reverse_flags:
-            return utils.reverse_u16(self._flags)
+            if self._reversed_flags is None:
+                self._reversed_flags = utils.reverse_u16(self._flags)
+            return self._reversed_flags
         return self._flags
+
+    def walk(self):
+        for obj in self.to_obj():
+            yield obj
+
+    def to_obj(self) -> list:
+        if not self.enforce_flags_default and self.flags != self.default_flags:
+            return [self.flags]
+        return []
+
+
+class OptRcodeVFlags(FlagsBase):
+    reverse_flags = True
+
+    def __init__(self, ttl):
+        super().__init__(0x0000, ttl & 0x0000FFFF)
+        self.rcode = (ttl & 0xFF000000) >> 24
+        self.version = (ttl & 0x00FF0000) >> 16
 
     def walk(self):
         for obj in self.to_obj():
@@ -114,7 +135,7 @@ class OptRcodeVFlags:
 
     def to_obj(self):
         if self.version == 0:
-            if self._flags == 0:
+            if self.enforce_flags_default or self.flags == self.default_flags:
                 if self.rcode == 0:
                     return []
                 return [self.rcode]
@@ -124,7 +145,6 @@ class OptRcodeVFlags:
 
 class OptRR:
     opt_tag = 20
-    unset_reserved_flags = True
 
     def __init__(
         self,
@@ -240,23 +260,6 @@ class RR(HasTypeSpec):
             ),
         )
         return res
-
-
-class FlagsBase:
-    enforce_flags_default: bool = False
-
-    def __init__(self, default_flags: int, flags: Optional[int] = None):
-        self.flags = default_flags if flags is None else flags
-        self.default_flags = default_flags
-
-    def walk(self):
-        for obj in self.to_obj():
-            yield obj
-
-    def to_obj(self) -> list:
-        if not self.enforce_flags_default and self.flags != self.default_flags:
-            return [self.flags]
-        return []
 
 
 class QueryFlags(FlagsBase):
