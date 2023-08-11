@@ -528,9 +528,10 @@ class DefaultPackingTableConstructor:
 class Encoder:
     packing_table_constructor_type = DefaultPackingTableConstructor
 
-    def __init__(self, fp, packed=False):
+    def __init__(self, fp, packed=False, always_omit_question=False):
         self.fp = fp
         self.packed = packed
+        self.always_omit_question = always_omit_question
         self.cbor_encoder = self.cbor_encoder_factory(
             packed, fp=fp, default=self.default_encoder
         )
@@ -703,7 +704,7 @@ class Encoder:
             authority=RR.rrs_from_section(msg.authority, orig_question or question),
             additional=self._get_additional(msg, orig_question or question),
         )
-        if orig_question and question == orig_question:
+        if self.always_omit_question or (orig_question and question == orig_question):
             question = None
         return DNSResponse(
             ResponseFlags(msg.flags),
