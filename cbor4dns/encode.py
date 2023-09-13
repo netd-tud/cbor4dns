@@ -294,14 +294,14 @@ class ExtraSections:
                     for obj in memb.walk():
                         yield obj
                 else:
-                    yield obj
+                    yield memb
         if self.additional:
             for memb in self.additional:
                 if isinstance(memb, RR):
                     for obj in memb.walk():
                         yield obj
                 else:
-                    yield obj
+                    yield memb
 
     def to_obj(self) -> list:
         if self.authority:
