@@ -182,7 +182,7 @@ class Decoder:
             # TODO: tsig
             else:
                 res.sections[section].append(wire_reader.message.sections[section][0])
-        elif isinstance(cbor_rr, cbor2.CBORTag) and cbor_rr.tag == 20:
+        elif isinstance(cbor_rr, cbor2.CBORTag) and cbor_rr.tag == 141:
             opt_rr = cbor_rr.value
             opt_rr[0] = self.deref(opt_rr[0])
             if isinstance(opt_rr[0], int):
@@ -192,8 +192,18 @@ class Decoder:
                 udp_payload_size = 512
                 offset = 0
             options = []
-            for otype, oval in opt_rr[offset]:
-                options.append(dns.edns.GenericOption(otype, oval))
+            otype = None
+            for i, item in enumerate(opt_rr[offset]):
+                print(i, item)
+                if (i % 2) == 0 and isinstance(item, int):
+                    otype = item
+                elif (i % 2) == 1 and isinstance(item, bytes) and otype is not None:
+                    options.append(dns.edns.GenericOption(otype, item))
+                    otype = None
+                else:
+                    raise ValueError(
+                        f"Unexpected format of option list {opt_rr[offset]}"
+                    )
             opt = dns.rdtypes.ANY.OPT.OPT(udp_payload_size, dns.rdatatype.OPT, options)
             rem = (len(opt_rr) - offset) - 1
             flags = utils.reverse_u16(self.deref(opt_rr[offset + 1])) if rem > 0 else 0

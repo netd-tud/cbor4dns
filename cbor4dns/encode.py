@@ -144,7 +144,7 @@ class OptRcodeVFlags(FlagsBase):
 
 
 class OptRR:
-    opt_tag = 20
+    opt_tag = 141
 
     def __init__(
         self,
@@ -159,9 +159,8 @@ class OptRR:
     def walk(self):
         for obj in self.to_obj():
             if isinstance(obj, list):
-                for otype, oval in obj:
-                    yield otype
-                    yield oval
+                for item in obj:
+                    yield item
             else:
                 yield obj
 
@@ -169,7 +168,7 @@ class OptRR:
         res = []
         if self.udp_payload_size > 512:
             res.append(self.udp_payload_size)
-        res.append(self.options)
+        res.append(list(itertools.chain.from_iterable(self.options)))
         res.extend(self.rcode_v_flags.to_obj())
         return cbor2.CBORTag(self.opt_tag, res)
 
