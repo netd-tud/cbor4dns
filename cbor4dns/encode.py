@@ -476,34 +476,29 @@ class OccurranceCounter:
 
     def __init__(self):
         self.bytes_counter = trie.CountingBytesTrie()
-        self.str_counter = trie.CountingStringTrie()
-        self.int_counter = dict()
+        self.str_int_counter = dict()
 
     def add(self, value):
         if isinstance(value, bytes):
             self.bytes_counter.insert(value)
-        elif isinstance(value, str):
-            self.str_counter.insert(value[::-1])
-        elif isinstance(value, int):
-            if value not in self.int_counter:
-                self.int_counter[value] = 1
+        elif isinstance(value, str) or isinstance(value, int):
+            if value not in self.str_int_counter:
+                self.str_int_counter[value] = 1
             else:
-                self.int_counter[value] += 1
+                self.str_int_counter[value] += 1
 
     def __iter__(self):
         for occurrences, value in self.bytes_counter:
             yield occurrences, value, len(value) + _cbor_length_field_length(
                 len(value)
             ), OccurranceCounter.STRAIGHT_REF
-        for occurrences, value in self.str_counter:
-            yield occurrences, value[::-1], len(value) + _cbor_length_field_length(
-                len(value)
-            ), OccurranceCounter.INVERTED_REF
-        for value, occurrences in self.int_counter.items():
+        for value, occurrences in self.str_int_counter.items():
             yield (
                 occurrences,
                 value,
-                cbor_int_length(value),
+                cbor_int_length(value)
+                if isinstance(value, int)
+                else len(value) + _cbor_length_field_length(len(value)),
                 OccurranceCounter.VALUE_REF,
             )
 
