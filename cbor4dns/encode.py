@@ -62,6 +62,28 @@ def name_to_text(name):
     return text
 
 
+class RefIdx:
+    tag = 7
+
+    def __init__(self):
+        self._dict = {}
+        self._count = 0
+
+    def add(self, name):
+        comps = name.split(".")
+        res = []
+        for i, comp in enumerate(comps):
+            suffix = ".".join(comps[i:])
+            if suffix in self._dict:
+                res.append(cbor2.CBORTag(self.tag, self._dict[suffix]))
+                break
+            else:
+                self._dict[suffix] = self._count
+                self._count += 1
+                res.append(comp)
+        return res
+
+
 class TypeSpec:
     def __init__(
         self,
@@ -99,9 +121,10 @@ class HasTypeSpec:
 
 
 class Question(HasTypeSpec):
-    def __init__(self, name: str, type_spec: TypeSpec):
+    def __init__(self, name: str, type_spec: TypeSpec, ref_idx: RefIdx):
         super().__init__(type_spec)
-        self.name = name
+        self.ref_idx = ref_idx
+        self.name = self.ref_idx.add(name)
 
     def __eq__(self, other):
         return self.name == other.name and self.type_spec == other.type_spec
@@ -111,24 +134,37 @@ class Question(HasTypeSpec):
             yield obj
 
     def to_obj(self) -> list:
-        res = [self.name]
+        res = self.name
         res.extend(self.type_spec.to_obj())
         return res
 
     @classmethod
-    def from_obj(cls, obj: list):
-        if not obj or len(obj) > 3:
+    def from_obj(cls, obj: list, ref_idx: RefIdx):
+        offset = 1
+        if not isinstance(obj[0], str):
+            raise ValueError(
+                f"Expected name component in first element of question {obj}"
+            )
+        name = obj[0]
+        for comp in obj[1:]:
+            if isinstance(comp, str):
+                offset += 1
+                name = f"{name}.{comp}"
+            elif isinstance(comp, cbor2.CBORTag) and comp.tag == ref_idx.tag:
+                raise ValueError(f"Unexpected name reference in question {obj}")
+            else:
+                break
+        if not obj or (len(obj) - offset) > 2:
             raise ValueError(f"Unexpected question length for question {obj}")
-        name = dns.name.from_text(obj[0])
         try:
-            record_type = obj[1]
+            record_type = obj[offset + 1]
         except IndexError:
             record_type = RdataType.AAAA
         try:
-            record_class = obj[2]
+            record_class = obj[offset + 2]
         except IndexError:
             record_class = RdataClass.IN
-        return cls(name, TypeSpec(record_type, record_class))
+        return cls(name, TypeSpec(record_type, record_class), ref_idx)
 
 
 class FlagsBase:
@@ -220,14 +256,19 @@ class RR(HasTypeSpec):
         ttl: int,
         rdata: Union[int, bytes, str],
         question: Question,
+        ref_idx: RefIdx
     ):
         if ttl < 0:
             raise ValueError(f"ttl={ttl} must not be < 0")
         super().__init__(type_spec)
         self.question = question
-        self.name = name
+        self.ref_idx = ref_idx
+        self.name = self.ref_idx.add(name)
         self.ttl = ttl
-        self.rdata = rdata
+        if isinstance(rdata, dns.rdtypes.nsbase.NSBase):
+            self.rdata = self.ref_idx.add(name_to_text(rdata.target))
+        else:
+            self.rdata = rdata
 
     def walk(self):
         for obj in self.to_obj():
@@ -236,11 +277,11 @@ class RR(HasTypeSpec):
     def to_obj(self) -> list:
         res = []
         if self.question.name != self.name:
-            res.append(name_to_text(self.name))
+            res.extend(self.name)
         res.append(self.ttl)
         res.extend(self.type_spec.to_obj())
-        if isinstance(self.rdata, dns.rdtypes.nsbase.NSBase):
-            res.append(name_to_text(self.rdata.target))
+        if isinstance(self.rdata, list):
+            res.extend(self.rdata)
         else:
             res.append(self.rdata.to_wire())
         return res
@@ -256,7 +297,7 @@ class RR(HasTypeSpec):
         return res
 
     @classmethod
-    def rrs_from_rrset(cls, rrset, question: Question) -> list:
+    def rrs_from_rrset(cls, rrset, question: Question, ref_idx: RefIdx) -> list:
         if isinstance(rrset, dns.rrset.RRset):
             if cls.encode_opts and rrset.rdtype == RdataType.OPT:
                 return [
@@ -276,11 +317,12 @@ class RR(HasTypeSpec):
                     return [byts]
             return [
                 cls(
-                    rrset.name,
+                    name_to_text(rrset.name),
                     TypeSpec(rrset.rdtype, rrset.rdclass),
                     rrset.ttl,
                     rr,
                     question,
+                    ref_idx,
                 )
                 for rr in rrset
             ]
@@ -289,10 +331,15 @@ class RR(HasTypeSpec):
             return res
 
     @classmethod
-    def rrs_from_section(cls, section: List, question: Question) -> list:
+    def rrs_from_section(
+        cls,
+        section: List,
+        question: Question,
+        ref_idx: RefIdx
+    ) -> list:
         res = list(
             itertools.chain.from_iterable(
-                cls.rrs_from_rrset(rrset, question) for rrset in section
+                cls.rrs_from_rrset(rrset, question, ref_idx) for rrset in section
             ),
         )
         return res
@@ -567,6 +614,7 @@ class Encoder:
     def __init__(self, fp, packed=False, always_omit_question=False):
         self.fp = fp
         self.packed = packed
+        self.ref_idx = None
         self.always_omit_question = always_omit_question
         self.cbor_encoder = self.cbor_encoder_factory(
             packed, fp=fp, default=self.default_encoder
@@ -721,24 +769,24 @@ class Encoder:
         else:
             raise ValueError(f"Can not encode {value} (type {type(value)})")
 
-    @staticmethod
-    def _get_question(msg):
+    def _get_question(self, msg):
         if len(msg.question) > 1:
             raise ValueError(
                 f"Can not encode message {msg} with question section longer than 1"
             )
         question_section = msg.question[0]
         return Question(
-            question_section.name,
+            name_to_text(question_section.name),
             TypeSpec(question_section.rdtype, question_section.rdclass),
+            self.ref_idx,
         )
 
     def _get_additional(self, msg, question):
-        additional = RR.rrs_from_section(msg.additional, question)
+        additional = RR.rrs_from_section(msg.additional, question, self.ref_idx)
         if msg.opt:
-            additional += RR.rrs_from_section([msg.opt], question)
+            additional += RR.rrs_from_section([msg.opt], question, self.ref_idx)
         if msg.tsig:
-            additional += RR.rrs_from_section(msg.tsig, question)
+            additional += RR.rrs_from_section(msg.tsig, question, self.ref_idx)
         return additional
 
     def _encode_query(self, msg: dns.message.Message):
@@ -747,7 +795,7 @@ class Encoder:
             QueryFlags(msg.flags),
             question,
             ExtraSections(
-                authority=RR.rrs_from_section(msg.authority, question),
+                authority=RR.rrs_from_section(msg.authority, question, self.ref_idx),
                 additional=self._get_additional(msg, question),
             ),
         )
@@ -757,7 +805,9 @@ class Encoder:
     ):
         question = self._get_question(msg)
         extra_sections = ExtraSections(
-            authority=RR.rrs_from_section(msg.authority, orig_question or question),
+            authority=RR.rrs_from_section(
+                msg.authority, orig_question or question, self.ref_idx
+            ),
             additional=self._get_additional(msg, orig_question or question),
         )
         if self.always_omit_question or (orig_question and question == orig_question):
@@ -765,7 +815,7 @@ class Encoder:
         return DNSResponse(
             ResponseFlags(msg.flags),
             question,
-            RR.rrs_from_section(msg.answer, orig_question or question),
+            RR.rrs_from_section(msg.answer, orig_question or question, self.ref_idx),
             extra_sections,
         )
 
@@ -776,19 +826,23 @@ class Encoder:
     ):
         if not isinstance(msg, dns.message.Message):
             msg = dns.message.from_wire(msg, one_rr_per_rrset=True)
+        self.ref_idx = RefIdx()
         if msg.flags & msg.flags.QR:  # msg is response
             if orig_query:
                 if isinstance(orig_query, bytes):
                     orig_query = cbor2.loads(orig_query)
                 orig_question = Question.from_obj(
-                    [q for q in orig_query if isinstance(q, list)][0]
+                    [q for q in orig_query if isinstance(q, list)][0],
+                    self.ref_idx,
                 )
             else:
                 orig_question = None
             res = self._encode_response(msg, orig_question)
+            counter = res.count()
             if self.packed:
                 packing_table_constr = self.packing_table_constructor_type(self)
                 self.packing_table = packing_table_constr.get_packing_table(res)
         else:
             res = self._encode_query(msg)
         self.cbor_encoder.encode(res)
+        self.ref_idx = None
