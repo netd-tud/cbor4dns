@@ -5,6 +5,7 @@ Provides the encoder for encoding DNS messages to application/dns+cbor
 import contextlib
 import io
 import itertools
+import sys
 from typing import List, Optional, Tuple, Union
 
 import cbor2
@@ -83,6 +84,35 @@ class RefIdx:
                 res.append(comp)
         return res
 
+    @staticmethod
+    def _pairwise(iterable):
+        if sys.version_info > (3, 10):
+            return itertools.pairwise(iterable)
+        else:
+            iterator = iter(iterable)
+            a = next(iterator, None)
+            for b in iterator:
+                yield a, b
+                a = b
+
+    def remove(self, name):
+        comps = name.split(".")
+        if not comps:
+            return
+        collected_suffixes = []
+        for i in reversed(range(len(comps))):
+            collected_suffixes.append('.'.join(comps[i:]))
+        for comp1, comp2 in self._pairwise(collected_suffixes):
+            if self._dict[comp1] != self._dict[comp2] + 1:
+                raise ValueError("Name cannot be removed properly")
+        max_rem_pos = self._dict[collected_suffixes[0]]
+        for suffix in list(self._dict.keys()):
+            if suffix in collected_suffixes:
+                del self._dict[suffix]
+                self._count -= 1
+            elif max_rem_pos < self._dict[suffix]:
+                self._dict[suffix] -= len(collected_suffixes)
+
 
 class TypeSpec:
     def __init__(
@@ -157,11 +187,11 @@ class Question(HasTypeSpec):
         if not obj or (len(obj) - offset) > 2:
             raise ValueError(f"Unexpected question length for question {obj}")
         try:
-            record_type = obj[offset + 1]
+            record_type = obj[offset]
         except IndexError:
             record_type = RdataType.AAAA
         try:
-            record_class = obj[offset + 2]
+            record_class = obj[offset + 1]
         except IndexError:
             record_class = RdataClass.IN
         return cls(name, TypeSpec(record_type, record_class), ref_idx)
@@ -263,7 +293,13 @@ class RR(HasTypeSpec):
         super().__init__(type_spec)
         self.question = question
         self.ref_idx = ref_idx
-        self.name = self.ref_idx.add(name)
+        name_split = name.split(".")
+        if name_split == self.question.name:
+            # keep name for debugging purposes but do not add it to ref_idx as it
+            # will be omitted
+            self.name = name_split
+        else:
+            self.name = self.ref_idx.add(name)
         self.ttl = ttl
         if isinstance(rdata, dns.rdtypes.nsbase.NSBase):
             self.rdata = self.ref_idx.add(name_to_text(rdata.target))
@@ -806,6 +842,7 @@ class Encoder:
             additional=self._get_additional(msg, orig_question or question),
         )
         if self.always_omit_question or (orig_question and question == orig_question):
+            self.ref_idx.remove('.'.join(question.name))
             question = None
         return DNSResponse(
             ResponseFlags(msg.flags),
@@ -826,10 +863,12 @@ class Encoder:
             if orig_query:
                 if isinstance(orig_query, bytes):
                     orig_query = cbor2.loads(orig_query)
+                query_ref_idx = RefIdx()
                 orig_question = Question.from_obj(
                     [q for q in orig_query if isinstance(q, list)][0],
-                    self.ref_idx,
+                    query_ref_idx,
                 )
+                del query_ref_idx
             else:
                 orig_question = None
             res = self._encode_response(msg, orig_question)
