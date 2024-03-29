@@ -11,6 +11,7 @@ from typing import List, Optional, Tuple, Union
 import cbor2
 import dns.message
 import dns.name
+import dns.rdata
 import dns.rdtypes.nsbase
 import dns.rrset
 from dns.rdataclass import RdataClass
@@ -84,34 +85,9 @@ class RefIdx:
                 res.append(comp)
         return res
 
-    @staticmethod
-    def _pairwise(iterable):
-        if sys.version_info > (3, 10):
-            return itertools.pairwise(iterable)
-        else:
-            iterator = iter(iterable)
-            a = next(iterator, None)
-            for b in iterator:
-                yield a, b
-                a = b
-
-    def remove(self, name):
-        comps = name.split(".")
-        if not comps:
-            return
-        collected_suffixes = []
-        for i in reversed(range(len(comps))):
-            collected_suffixes.append('.'.join(comps[i:]))
-        for comp1, comp2 in self._pairwise(collected_suffixes):
-            if self._dict[comp1] != self._dict[comp2] + 1:
-                raise ValueError("Name cannot be removed properly")
-        max_rem_pos = self._dict[collected_suffixes[0]]
-        for suffix in list(self._dict.keys()):
-            if suffix in collected_suffixes:
-                del self._dict[suffix]
-                self._count -= 1
-            elif max_rem_pos < self._dict[suffix]:
-                self._dict[suffix] -= len(collected_suffixes)
+    def clear(self):
+        self._dict.clear()
+        self._count = 0
 
 
 class TypeSpec:
@@ -154,7 +130,7 @@ class Question(HasTypeSpec):
     def __init__(self, name: str, type_spec: TypeSpec, ref_idx: RefIdx):
         super().__init__(type_spec)
         self.ref_idx = ref_idx
-        self.name = self.ref_idx.add(name)
+        self.name = name
 
     def __eq__(self, other):
         return self.name == other.name and self.type_spec == other.type_spec
@@ -164,7 +140,7 @@ class Question(HasTypeSpec):
             yield obj
 
     def to_obj(self) -> list:
-        res = self.name
+        res = self.ref_idx.add(self.name)
         res.extend(self.type_spec.to_obj())
         return res
 
@@ -284,7 +260,7 @@ class RR(HasTypeSpec):
         name: str,
         type_spec: TypeSpec,
         ttl: int,
-        rdata: Union[int, bytes, str],
+        rdata: dns.rdata.Rdata,
         question: Question,
         ref_idx: RefIdx
     ):
@@ -293,18 +269,9 @@ class RR(HasTypeSpec):
         super().__init__(type_spec)
         self.question = question
         self.ref_idx = ref_idx
-        name_split = name.split(".")
-        if name_split == self.question.name:
-            # keep name for debugging purposes but do not add it to ref_idx as it
-            # will be omitted
-            self.name = name_split
-        else:
-            self.name = self.ref_idx.add(name)
+        self.name = name
         self.ttl = ttl
-        if isinstance(rdata, dns.rdtypes.nsbase.NSBase):
-            self.rdata = self.ref_idx.add(name_to_text(rdata.target))
-        else:
-            self.rdata = rdata
+        self.rdata = rdata
 
     def walk(self):
         for obj in self.to_obj():
@@ -313,11 +280,15 @@ class RR(HasTypeSpec):
     def to_obj(self) -> list:
         res = []
         if self.question.name != self.name:
-            res.extend(self.name)
+            res.extend(self.ref_idx.add(self.name))
         res.append(self.ttl)
         res.extend(self.type_spec.to_obj())
-        if isinstance(self.rdata, list):
-            res.extend(self.rdata)
+        if isinstance(self.rdata, dns.rdtypes.nsbase.NSBase):
+            res.extend(
+                self.ref_idx.add(
+                    name_to_text(self.rdata.target)
+                )
+            )
         else:
             res.append(self.rdata.to_wire())
         return res
@@ -439,10 +410,12 @@ class DNSQuery:
         flags: QueryFlags,
         question: Question,
         extra: ExtraSections,
+        ref_idx: RefIdx,
     ):
         self.flags = flags
         self.question = question
         self.extra = extra
+        self.ref_idx = ref_idx
 
     def walk(self):
         for obj in self.flags.walk():
@@ -453,6 +426,7 @@ class DNSQuery:
             yield obj
 
     def to_obj(self) -> list:
+        self.ref_idx.clear()
         res = self.flags.to_obj()
         res.append(self.question)
         res.extend(self.extra.to_obj())
@@ -546,11 +520,13 @@ class DNSResponse:
         question: Optional[Question],
         answer: List[Union[RR, bytes]],
         extra: ExtraSections,
+        ref_idx: RefIdx,
     ):
         self.flags = flags
         self.question = question
         self.answer = answer
         self.extra = extra
+        self.ref_idx = ref_idx
 
     def walk(self):
         for obj in self.flags.walk():
@@ -574,6 +550,7 @@ class DNSResponse:
         return counter
 
     def to_obj(self) -> list:
+        self.ref_idx.clear()
         res = self.flags.to_obj()
         if self.question:
             res.append(self.question)
@@ -829,6 +806,7 @@ class Encoder:
                 authority=RR.rrs_from_section(msg.authority, question, self.ref_idx),
                 additional=self._get_additional(msg, question),
             ),
+            self.ref_idx,
         )
 
     def _encode_response(
@@ -842,13 +820,13 @@ class Encoder:
             additional=self._get_additional(msg, orig_question or question),
         )
         if self.always_omit_question or (orig_question and question == orig_question):
-            self.ref_idx.remove('.'.join(question.name))
             question = None
         return DNSResponse(
             ResponseFlags(msg.flags),
             question,
             RR.rrs_from_section(msg.answer, orig_question or question, self.ref_idx),
             extra_sections,
+            self.ref_idx,
         )
 
     def encode(
