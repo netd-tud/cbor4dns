@@ -268,7 +268,7 @@ class Decoder:
         if sections == 1:
             authority = []
             additional = []
-        if sections == 2:
+        elif sections == 2:
             authority = []
             additional = obj[offset + 1]
         elif sections == 3:
