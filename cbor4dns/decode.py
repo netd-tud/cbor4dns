@@ -119,7 +119,8 @@ class Decoder:
     def _unpack_packing_table(self):
         if not isinstance(self.packing_table, list):
             return
-        ref_in_packing_table = True
+        # skip for empty packing table
+        ref_in_packing_table = len(self.packing_table) > 0
         iterations = 0
         while ref_in_packing_table and iterations < len(self.packing_table):
             iterations += 1
