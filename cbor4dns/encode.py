@@ -2,6 +2,7 @@
 Provides the encoder for encoding DNS messages to application/dns+cbor
 """
 
+import contextlib
 import io
 import itertools
 from typing import List, Optional, Tuple, Union
@@ -558,6 +559,8 @@ class Encoder:
                 # set to anything but 0 or 1 to use custom encoding
                 self.enc_style = 0xD0
                 self.encoding_packing_table = False
+                self._reffing_bytes = False
+                self._reffing_str = False
 
             def encode(self, obj):
                 if isinstance(obj, DNSResponse) and outer.packing_table:
@@ -610,39 +613,57 @@ class Encoder:
                             return
                 super().encode_int(value)
 
+            @contextlib.contextmanager
+            def enter_reffing_bytes(self):
+                self._reffing_bytes = True
+                yield
+                self._reffing_bytes = False
+
+            @contextlib.contextmanager
+            def enter_reffing_str(self):
+                self._reffing_str = True
+                yield
+                self._reffing_str = False
+
             def encode_bytestring(self, value):
-                if outer.packing_table:
-                    max_match = -1, 0
-                    for idx, prefix in enumerate(outer.packing_table):
-                        if isinstance(prefix, bytes) and value is not prefix:
-                            if value == prefix:
-                                self.ref_shared_item(value, idx)
-                                return
-                            elif (
-                                value.startswith(prefix) and len(prefix) > max_match[1]
-                            ):
-                                max_match = idx, len(prefix)
-                    if max_match != (-1, 0):
-                        value = value[max_match[1] :]
-                        self.ref_straight_rump(value, max_match[0])
-                        return
+                if not self._reffing_bytes and outer.packing_table:
+                    with self.enter_reffing_bytes():
+                        max_match = -1, 0
+                        for idx, prefix in enumerate(outer.packing_table):
+                            if isinstance(prefix, bytes) and value is not prefix:
+                                if value == prefix:
+                                    self.ref_shared_item(value, idx)
+                                    return
+                                elif (
+                                    value.startswith(prefix)
+                                    and len(prefix) > max_match[1]
+                                ):
+                                    max_match = idx, len(prefix)
+                        if max_match != (-1, 0):
+                            value = value[max_match[1] :]
+                            self.ref_straight_rump(value, max_match[0])
+                            return
                 super().encode_bytestring(value)
 
             def encode_string(self, value):
-                if outer.packing_table:
-                    max_match = -1, 0
-                    for idx, suffix in enumerate(outer.packing_table):
-                        if isinstance(suffix, str) and value is not suffix:
-                            if value == suffix:
-                                self.ref_shared_item(value, idx)
-                                return
-                            elif value.endswith(suffix) and len(suffix) > max_match[1]:
-                                max_match = idx, len(suffix)
-                    if max_match != (-1, 0):
-                        # TODO: check if ref_inverted_rump yields shorter CBOR code
-                        value = value[: -max_match[1]]
-                        self.ref_inverted_rump(value, max_match[0])
-                        return
+                if not self._reffing_str and outer.packing_table:
+                    with self.enter_reffing_str():
+                        max_match = -1, 0
+                        for idx, suffix in enumerate(outer.packing_table):
+                            if isinstance(suffix, str) and value is not suffix:
+                                if value == suffix:
+                                    self.ref_shared_item(value, idx)
+                                    return
+                                elif (
+                                    value.endswith(suffix)
+                                    and len(suffix) > max_match[1]
+                                ):
+                                    max_match = idx, len(suffix)
+                        if max_match != (-1, 0):
+                            # TODO: check if ref_inverted_rump yields shorter CBOR code
+                            value = value[: -max_match[1]]
+                            self.ref_inverted_rump(value, max_match[0])
+                            return
                 super().encode_string(value)
 
         if packed:

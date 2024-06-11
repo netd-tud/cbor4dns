@@ -302,6 +302,30 @@ TEST_VECTOR = (
         b"\xb7\xd5a\xaa\xd9\xc2",
         id="response example.org AAAA (w/ original query), packed",
     ),
+    pytest.param(
+        bytes.fromhex(
+            "00000100000100000000000007736f6c2d646f630378797a0000300001"
+        ),
+        True,
+        None,
+        False,
+        b"\x82\x19\x01\x00\x82ksol-doc.xyz\x180",
+    ),
+    pytest.param(
+        bytes.fromhex(
+            "00008180000100020000000003366e7702696d0000020001c00c000200010000546000180"
+            "4656c6c65026e730a636c6f7564666c61726503636f6d00c00c0002000100005460000603"
+            "6a696dc029"
+        ),
+        False,
+        b"\x82\x19\x01\x00\x82ksol-doc.xyz\x180",
+        True,
+        bytes.fromhex(
+            "8284616dd8d8712e6e732e636c6f7564666c6172652e636fd8d865366e772e69195460831"
+            "9818082e2028284e2e302d8d964656c6c6584e2e302d8d9636a696d"
+        ),
+        id="Packed with complicated name structure"
+    ),
 )
 
 
@@ -343,7 +367,8 @@ def test_cbor_int_length(integer):
 @pytest.mark.parametrize("wire, _, orig_query, packed, exp_cbor", TEST_VECTOR)
 def test_encoder_encode(wire, _, orig_query, packed, exp_cbor):
     with io.BytesIO() as file:
-        encoder = cbor4dns.encode.Encoder(file, packed=packed)
+        encoder = cbor4dns.encode.Encoder(file, packed=packed,
+                                          always_omit_question=False)
         encoder.encode(wire, orig_query)
         res = file.getvalue()
         pprint.pprint(cbor2.loads(res))
