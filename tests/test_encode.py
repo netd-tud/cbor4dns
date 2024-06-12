@@ -332,6 +332,21 @@ TEST_VECTOR = (
         ),
         id="Packed with complicated name structure",
     ),
+    pytest.param(
+        bytes.fromhex(
+            "0000818000010002000000000172047475726e03636f6d0000010001c00c0005000100000"
+            "25800170172047475726e03636f6d06616b61646e73036e657400c028000100010000012c"
+            "00043274c215"
+        ),
+        False,
+        bytes.fromhex("82190100846172647475726e63636f6d01"),
+        False,
+        bytes.fromhex(
+            "821981808287190258056172647475726e63636f6d66616b61646e73636e657484c700190"
+            "12c01443274c215"
+        ),
+        id="Testing comp_ref",
+    ),
 )
 
 
