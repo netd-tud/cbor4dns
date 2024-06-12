@@ -2,6 +2,7 @@
 Provides the decoder for encoding DNS messages to application/dns+cbor
 """
 
+import contextlib
 import enum
 import struct
 from typing import Optional, Union, Tuple
@@ -34,6 +35,7 @@ class Decoder:
         self.fp = fp
         self.cbor_decoder = cbor2.CBORDecoder(fp)
         self.packing_table = None
+        self._ref_idx = None
 
     @classmethod
     def is_ref(cls, obj):
@@ -154,20 +156,60 @@ class Decoder:
         res.flags = flags
         return offset, res
 
+    @staticmethod
+    def _is_name(element):
+        is_str = isinstance(element, str)
+        is_ref_tag = (
+            isinstance(element, cbor2.CBORTag)
+            and element.tag == utils.RefIdx.tag
+        )
+        if is_ref_tag:
+            ref = element.value
+        else:
+            ref = None
+        return is_str or is_ref_tag, ref
+
+    def _decode_name(self, array):
+        offset = 0
+        name = ""
+        is_name, ref = self._is_name(array[offset])
+        ref_idx_start = len(self._ref_idx)
+        while is_name:
+            if ref is None:  # array[offset] is a string
+                self._ref_idx.append([array[offset]])
+                for ref_idx in self._ref_idx[ref_idx_start:-1]:
+                    ref_idx.append(array[offset])
+                name = f"{name}.{self.deref(array[offset])}"
+            else:
+                suffix = self._ref_idx[ref]
+                for ref_idx in self._ref_idx[ref_idx_start:]:
+                    ref_idx.extend(suffix)
+                name = f"{name}.{'.'.join(suffix)}"
+                offset += 1
+                break
+            offset += 1
+            if offset < len(array):
+                is_name, ref = self._is_name(array[offset])
+            else:
+                is_name = False
+                ref = None
+        return name.strip("."), offset
+
     def _decode_question(self, cbor_question):
-        if len(cbor_question) == 1:
+        name, offset = self._decode_name(cbor_question)
+        if len(cbor_question[offset:]) == 0:
             rdclass = dns.rdataclass.IN
             rdtype = dns.rdatatype.AAAA
-        elif len(cbor_question) == 2:
+        elif len(cbor_question[offset:]) == 1:
             rdclass = dns.rdataclass.IN
-            rdtype = self.deref(cbor_question[1])
-        elif len(cbor_question) == 3:
-            rdclass = self.deref(cbor_question[2])
-            rdtype = self.deref(cbor_question[1])
+            rdtype = self.deref(cbor_question[offset])
+        elif len(cbor_question[offset:]) == 2:
+            rdclass = self.deref(cbor_question[offset + 1])
+            rdtype = self.deref(cbor_question[offset])
         else:
             raise ValueError(f"Invalid length for question {cbor_question!r}")
         return dns.rrset.RRset(
-            name=dns.name.from_text(self.deref(cbor_question[0])),
+            name=dns.name.from_text(name),
             rdclass=rdclass,
             rdtype=rdtype,
         )
@@ -218,7 +260,7 @@ class Decoder:
             rrset.add(opt, ttl)
             res.sections[section].append(rrset)
         elif isinstance(cbor_rr, list):
-            if len(cbor_rr) < 2 or len(cbor_rr) > 5:
+            if len(cbor_rr) < 2:  # or len(cbor_rr) > 5:
                 raise ValueError(f"Resource record of unexpected length {cbor_rr!r}")
             cbor_rr[0] = self.deref(cbor_rr[0])
             if isinstance(cbor_rr[0], int):
@@ -226,9 +268,15 @@ class Decoder:
                 ttl = cbor_rr[0]
                 offset = 1
             else:
-                name = dns.name.from_text(cbor_rr[0])
-                ttl = self.deref(cbor_rr[1])
-                offset = 2
+                name_str, name_offset = self._decode_name(cbor_rr)
+                name = dns.name.from_text(name_str)
+                if (name_offset + 1) > len(cbor_rr):
+                    raise ValueError(
+                        f"Resource record of unexpected length {cbor_rr!r}"
+                        f" {name_offset}"
+                    )
+                ttl = self.deref(cbor_rr[name_offset])
+                offset = name_offset + 1
             cbor_rr[offset] = self.deref(cbor_rr[offset])
             if isinstance(cbor_rr[offset], int):
                 rdtype = cbor_rr[offset]
@@ -243,12 +291,21 @@ class Decoder:
                 rdtype = dns.rdatatype.AAAA
                 rdclass = dns.rdataclass.IN
 
-            rdata = self.deref(cbor_rr[offset])
-            if isinstance(rdata, str):
-                rdata = dns.name.from_text(rdata).to_wire()
-            elif isinstance(rdata, int):
-                # TODO: check if this suffices
-                rdata = struct.pack("!l", rdata)
+            # rdata = self.deref(cbor_rr[offset])
+            is_name, _ = self._is_name(cbor_rr[offset])
+            if is_name:
+                name_str, name_offset = self._decode_name(cbor_rr[offset:])
+                offset += name_offset
+                if offset < len(cbor_rr):
+                    raise ValueError(
+                        f"Resource record of unexpected length {cbor_rr!r}"
+                    )
+                rdata = dns.name.from_text(name_str).to_wire()
+            else:
+                rdata = self.deref(cbor_rr[offset])
+                if isinstance(rdata, int):
+                    # TODO: check if this suffices
+                    rdata = struct.pack("!l", rdata)
             rrset = dns.rrset.RRset(name, rdclass, rdtype)
             rd = dns.rdata.from_wire(rdclass, rdtype, rdata, 0, len(rdata))
             rrset.add(rd, ttl)
@@ -294,6 +351,8 @@ class Decoder:
             if isinstance(orig_query, bytes):
                 orig_query = cbor2.loads(orig_query)
             orig_query = self.decode_query(orig_query)
+            # reset ref_idx
+            self._ref_idx = []
         if obj is None:
             obj = self.cbor_decoder.decode()
         if not isinstance(obj, list):
@@ -349,6 +408,12 @@ class Decoder:
         finally:
             self.packing_table = None
 
+    @contextlib.contextmanager
+    def _prepare_ref_idx(self):
+        self._ref_idx = []
+        yield
+        self._ref_idx = None
+
     def decode(
         self,
         msg_type: MsgType,
@@ -356,9 +421,15 @@ class Decoder:
         packed: bool = False,
         obj: list = None,
     ) -> dns.message.Message:
-        if msg_type == MsgType.QUERY:
-            return self.decode_query(obj=obj)
-        elif msg_type == MsgType.RESPONSE:
-            return self.decode_response(orig_query=orig_query, packed=packed, obj=obj)
-        else:
-            raise ValueError(r"Unexpected message type {msg_type!r}")
+        assert self._ref_idx is None
+        with self._prepare_ref_idx():
+            if msg_type == MsgType.QUERY:
+                return self.decode_query(obj=obj)
+            elif msg_type == MsgType.RESPONSE:
+                return self.decode_response(
+                    orig_query=orig_query,
+                    packed=packed,
+                    obj=obj
+                )
+            else:
+                raise ValueError(r"Unexpected message type {msg_type!r}")

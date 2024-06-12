@@ -19,6 +19,7 @@ from dns.rdatatype import RdataType
 
 from . import trie
 from . import utils
+from .utils import RefIdx
 
 
 def _escapify(label: Union[bytes, str]) -> str:
@@ -62,32 +63,6 @@ IDNA_CODEC = UnescapedIDNA2008Codec(True, False, True, False)
 def name_to_text(name):
     text = name.to_unicode(omit_final_dot=True, idna_codec=IDNA_CODEC)
     return text
-
-
-class RefIdx:
-    tag = 7
-
-    def __init__(self):
-        self._dict = {}
-        self._count = 0
-
-    def add(self, name):
-        comps = name.split(".")
-        res = []
-        for i, comp in enumerate(comps):
-            suffix = ".".join(comps[i:])
-            if suffix in self._dict:
-                res.append(cbor2.CBORTag(self.tag, self._dict[suffix]))
-                break
-            else:
-                self._dict[suffix] = self._count
-                self._count += 1
-                res.append(comp)
-        return res
-
-    def clear(self):
-        self._dict.clear()
-        self._count = 0
 
 
 class TypeSpec:
