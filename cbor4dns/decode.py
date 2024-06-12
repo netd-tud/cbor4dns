@@ -195,7 +195,6 @@ class Decoder:
             options = []
             otype = None
             for i, item in enumerate(opt_rr[offset]):
-                print(i, item)
                 if (i % 2) == 0 and isinstance(item, int):
                     otype = item
                 elif (i % 2) == 1 and isinstance(item, bytes) and otype is not None:
