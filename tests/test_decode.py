@@ -15,9 +15,11 @@ def test_decoder_decode(exp_res, is_query, orig_query, packed, cbor):
     with io.BytesIO(cbor) as file:
         decoder = cbor4dns.decode.Decoder(file)
         res = decoder.decode(
-            cbor4dns.decode.MsgType.QUERY
-            if is_query
-            else cbor4dns.decode.MsgType.RESPONSE,
+            (
+                cbor4dns.decode.MsgType.QUERY
+                if is_query
+                else cbor4dns.decode.MsgType.RESPONSE
+            ),
             orig_query=orig_query,
             packed=packed,
         )

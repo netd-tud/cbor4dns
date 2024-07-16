@@ -2,7 +2,6 @@
 Provides utilities for de- and encoding DNS messages from and to application/dns+cbor
 """
 
-
 """
 https://web.archive.org/web/20150226083354/http://leetcode.com/2011/08/reverse-bits.html
 """
