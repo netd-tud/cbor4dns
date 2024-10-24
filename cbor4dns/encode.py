@@ -32,6 +32,8 @@ class UnescapedIDNA2008Codec(dns.name.IDNA2008Codec):
             if self.is_idna(label):
                 try:
                     slabel = label[4:].decode("punycode")
+                    if len(label) < len(slabel.encode("utf-8")):
+                        return label.decode("ascii")
                     return _escapify(slabel)
                 except Exception as e:
                     raise dns.name.IDNAException(idna_exception=e)
@@ -45,6 +47,8 @@ class UnescapedIDNA2008Codec(dns.name.IDNA2008Codec):
             ulabel = dns.name.idna.ulabel(label)
             if self.uts_46:
                 ulabel = dns.name.idna.uts46_remap(ulabel, False, self.transitional)
+            if len(label) < len(ulabel.encode("utf-8")):
+                return label.decode("ascii")
             return _escapify(ulabel)
         except (dns.name.idna.IDNAError, UnicodeError) as e:
             raise dns.name.IDNAException(idna_exception=e)
