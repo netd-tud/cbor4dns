@@ -227,8 +227,6 @@ class OptRR:
 
 
 class RR(HasTypeSpec):
-    encode_opts = True
-
     def __init__(
         self,
         name: str,
@@ -276,7 +274,7 @@ class RR(HasTypeSpec):
     @classmethod
     def rrs_from_rrset(cls, rrset, question: Question, ref_idx: RefIdx) -> list:
         if isinstance(rrset, dns.rrset.RRset):
-            if cls.encode_opts and rrset.rdtype == RdataType.OPT:
+            if rrset.rdtype == RdataType.OPT:
                 return [
                     OptRR(
                         rr.payload,
@@ -285,9 +283,7 @@ class RR(HasTypeSpec):
                     )
                     for rr in rrset
                 ]
-            elif rrset.rdtype == RdataType.TSIG or (
-                not cls.encode_opts and rrset.rdtype == RdataType.OPT
-            ):
+            elif rrset.rdtype == RdataType.TSIG:
                 with io.BytesIO() as fp:
                     rrset.to_wire(fp)
                     byts = fp.getvalue()
