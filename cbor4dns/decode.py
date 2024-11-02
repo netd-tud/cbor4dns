@@ -332,19 +332,28 @@ class Decoder:
         sections = len(obj) - offset
         res.question = [self._decode_question(obj[offset])]
         if sections == 1:
+            answer = []
             authority = []
             additional = []
         elif sections == 2:
+            answer = []
             authority = []
             additional = obj[offset + 1]
         elif sections == 3:
+            answer = []
             authority = obj[offset + 1]
             additional = obj[offset + 2]
+        elif sections == 4:
+            answer = obj[offset + 1]
+            authority = obj[offset + 2]
+            additional = obj[offset + 3]
         else:
             raise ValueError(
                 f"Unexpected number of sections {sections} in query object {obj!r}"
             )
         name = res.question[0].name
+        for rr in answer:
+            self._decode_rr(name, dns.message.ANSWER, rr, res)
         for rr in authority:
             self._decode_rr(name, dns.message.AUTHORITY, rr, res)
         for rr in additional:

@@ -324,12 +324,46 @@ class ExtraSections:
         return []
 
 
+class QueryExtraSections(ExtraSections):
+    def __init__(
+        self,
+        answers: Optional[List[Union[RR, bytes]]] = None,
+        authority: Optional[List[Union[RR, bytes]]] = None,
+        additional: Optional[List[Union[RR, bytes]]] = None,
+    ):
+        self.answers = answers
+        super().__init__(authority, additional)
+
+    def __bool__(self):
+        return (self.answers is not None and len(self.answers) > 0) and bool(super())
+
+    def walk(self):
+        if self.answers:
+            for memb in self.answers:
+                if isinstance(memb, RR):
+                    for obj in memb.walk():
+                        yield obj
+                else:
+                    yield obj
+        for obj in super().walk():
+            yield obj
+
+    def to_obj(self) -> list:
+        if self.answers:
+            if self.authority:
+                if self.additional:
+                    return [self.answers, self.authority, self.additional]
+                return [self.answers, self.authority, []]
+            return [self.answers, [], []]
+        return super().to_obj()
+
+
 class DNSQuery:
     def __init__(
         self,
         flags: QueryFlags,
         question: Question,
-        extra: ExtraSections,
+        extra: QueryExtraSections,
         ref_idx: RefIdx,
     ):
         self.flags = flags
@@ -723,7 +757,8 @@ class Encoder:
         return DNSQuery(
             QueryFlags(msg.flags),
             question,
-            ExtraSections(
+            QueryExtraSections(
+                answers=RR.rrs_from_section(msg.answer, question, self.ref_idx),
                 authority=RR.rrs_from_section(msg.authority, question, self.ref_idx),
                 additional=self._get_additional(msg, question),
             ),
