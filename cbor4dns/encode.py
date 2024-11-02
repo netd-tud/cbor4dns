@@ -617,7 +617,8 @@ class Encoder:
                 self._encoders[int] = type(self).encode_int
                 self._encoders[bytes] = type(self).encode_bytestring
                 self._encoders[str] = type(self).encode_string
-                # set to anything but 0 or 1 to use custom encoding
+                # set to anything but 0 or 1 so that CBOREncoder uses custom encoders
+                # above
                 self.enc_style = 0xD0
                 self.encoding_packing_table = False
                 self._reffing_bytes = False
