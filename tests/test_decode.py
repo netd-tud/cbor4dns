@@ -3,12 +3,26 @@
 
 import io
 
+import cbor2
 import cbor_diag
 import pytest
 
 import cbor4dns.decode
 
 from .test_encode import TEST_VECTOR
+
+
+@pytest.mark.parametrize(
+    "cbor, exp",
+    [
+        (cbor2.CBORSimpleValue(5), True),
+        (cbor2.CBORSimpleValue(23), False),
+        (cbor2.CBORTag(6, "foo"), True),
+        (cbor2.CBORTag(23, "bar"), False),
+    ],
+)
+def test_decoder_is_ref(cbor, exp):
+    assert exp == cbor4dns.decode.Decoder.is_ref(cbor)
 
 
 @pytest.mark.parametrize("exp_res, is_query, orig_query, packed, cbor", TEST_VECTOR)

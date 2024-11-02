@@ -45,10 +45,10 @@ class Decoder:
             return (
                 obj.tag == 6
                 or 216 <= obj.tag <= 255
-                or 27647 <= obj <= 28671
-                or 28704 <= obj <= 32767
-                or 1811940352 <= obj <= 1879048191
-                or 1879052288 <= obj <= 2147483647
+                or 27647 <= obj.tag <= 28671
+                or 28704 <= obj.tag <= 32767
+                or 1811940352 <= obj.tag <= 1879048191
+                or 1879052288 <= obj.tag <= 2147483647
             )
         return False
 
