@@ -2,7 +2,6 @@
 
 
 import io
-import pprint
 
 import cbor_diag
 import cbor2
@@ -351,13 +350,20 @@ def test_cbor_int_length(integer):
 @pytest.mark.parametrize("wire, _, orig_query, packed, exp_cbor", TEST_VECTOR)
 def test_encoder_encode(wire, _, orig_query, packed, exp_cbor):
     with io.BytesIO() as file:
-        encoder = cbor4dns.encode.Encoder(file, packed=packed, always_omit_question=False)
+        encoder = cbor4dns.encode.Encoder(
+            file,
+            packed=packed,
+            always_omit_question=False,
+        )
         if isinstance(orig_query, str):
+            # pylint: disable=no-member
             orig_query = cbor_diag.diag2cbor(orig_query)
         encoder.encode(wire, orig_query)
         res = file.getvalue()
+        # pylint: disable=no-member
         print(cbor_diag.cbor2diag(res))
         print(len(res), len(wire), len(res) / len(wire))
         if isinstance(exp_cbor, str):
+            # pylint: disable=no-member
             exp_cbor = cbor_diag.diag2cbor(exp_cbor)
         assert res == exp_cbor
