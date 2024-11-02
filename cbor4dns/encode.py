@@ -5,7 +5,6 @@ Provides the encoder for encoding DNS messages to application/dns+cbor
 import contextlib
 import io
 import itertools
-import sys
 from typing import List, Optional, Tuple, Union
 
 import cbor2
@@ -237,7 +236,7 @@ class RR(HasTypeSpec):
         ttl: int,
         rdata: dns.rdata.Rdata,
         question: Question,
-        ref_idx: RefIdx
+        ref_idx: RefIdx,
     ):
         if ttl < 0:
             raise ValueError(f"ttl={ttl} must not be < 0")
@@ -259,11 +258,7 @@ class RR(HasTypeSpec):
         res.append(self.ttl)
         res.extend(self.type_spec.to_obj())
         if isinstance(self.rdata, dns.rdtypes.nsbase.NSBase):
-            res.extend(
-                self.ref_idx.add(
-                    name_to_text(self.rdata.target)
-                )
-            )
+            res.extend(self.ref_idx.add(name_to_text(self.rdata.target)))
         else:
             res.append(self.rdata.to_wire())
         return res
@@ -314,10 +309,7 @@ class RR(HasTypeSpec):
 
     @classmethod
     def rrs_from_section(
-        cls,
-        section: List,
-        question: Question,
-        ref_idx: RefIdx
+        cls, section: List, question: Question, ref_idx: RefIdx
     ) -> list:
         res = list(
             itertools.chain.from_iterable(
@@ -481,9 +473,11 @@ class OccurranceCounter:
             yield (
                 occurrences,
                 value,
-                cbor_int_length(value)
-                if isinstance(value, int)
-                else len(value) + _cbor_length_field_length(len(value)),
+                (
+                    cbor_int_length(value)
+                    if isinstance(value, int)
+                    else len(value) + _cbor_length_field_length(len(value))
+                ),
                 OccurranceCounter.VALUE_REF,
             )
 
@@ -825,7 +819,6 @@ class Encoder:
             else:
                 orig_question = None
             res = self._encode_response(msg, orig_question)
-            counter = res.count()
             if self.packed:
                 packing_table_constr = self.packing_table_constructor_type(self)
                 self.packing_table = packing_table_constr.get_packing_table(res)

@@ -160,8 +160,7 @@ class Decoder:
     def _is_name(element):
         is_str = isinstance(element, str)
         is_ref_tag = (
-            isinstance(element, cbor2.CBORTag)
-            and element.tag == utils.RefIdx.tag
+            isinstance(element, cbor2.CBORTag) and element.tag == utils.RefIdx.tag
         )
         if is_ref_tag:
             ref = element.value
@@ -427,9 +426,7 @@ class Decoder:
                 return self.decode_query(obj=obj)
             elif msg_type == MsgType.RESPONSE:
                 return self.decode_response(
-                    orig_query=orig_query,
-                    packed=packed,
-                    obj=obj
+                    orig_query=orig_query, packed=packed, obj=obj
                 )
             else:
                 raise ValueError(r"Unexpected message type {msg_type!r}")

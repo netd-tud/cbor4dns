@@ -7,9 +7,6 @@ import pytest
 
 import cbor4dns.decode
 
-import cbor2
-import dns.message
-
 from .test_encode import TEST_VECTOR
 
 

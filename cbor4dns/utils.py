@@ -2,10 +2,6 @@
 Provides utilities for de- and encoding DNS messages from and to application/dns+cbor
 """
 
-"""
-https://web.archive.org/web/20150226083354/http://leetcode.com/2011/08/reverse-bits.html
-"""
-
 import cbor2
 
 
@@ -33,6 +29,11 @@ class RefIdx:
     def clear(self):
         self._dict.clear()
         self._count = 0
+
+
+"""
+https://web.archive.org/web/20150226083354/http://leetcode.com/2011/08/reverse-bits.html
+"""
 
 
 def reverse_u16(x):
