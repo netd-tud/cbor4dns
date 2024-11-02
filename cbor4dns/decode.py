@@ -247,12 +247,9 @@ class Decoder:
                 offset = 0
             options = []
             otype = None
-            for i, item in enumerate(opt_rr[offset]):
-                if (i % 2) == 0 and isinstance(item, int):
-                    otype = item
-                elif (i % 2) == 1 and isinstance(item, bytes) and otype is not None:
+            for i, (otype, item) in enumerate(opt_rr[offset].items()):
+                if isinstance(otype, int) and isinstance(item, bytes):
                     options.append(dns.edns.GenericOption(otype, item))
-                    otype = None
                 else:
                     raise ValueError(
                         f"Unexpected format of option list {opt_rr[offset]}"

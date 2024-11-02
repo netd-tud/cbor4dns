@@ -221,7 +221,7 @@ class OptRR:
         res = []
         if self.udp_payload_size > 512:
             res.append(self.udp_payload_size)
-        res.append(list(itertools.chain.from_iterable(self.options)))
+        res.append(dict(self.options))
         res.extend(self.rcode_v_flags.to_obj())
         return cbor2.CBORTag(self.opt_tag, res)
 
