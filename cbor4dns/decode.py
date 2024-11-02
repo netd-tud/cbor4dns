@@ -170,7 +170,7 @@ class Decoder:
 
     def _decode_name(self, array):
         offset = 0
-        name = ""
+        name = []
         element = self.deref(array[offset])
         is_name, ref = self._is_name(element)
         ref_idx_start = len(self._ref_idx)
@@ -179,12 +179,12 @@ class Decoder:
                 self._ref_idx.append([element])
                 for ref_idx in self._ref_idx[ref_idx_start:-1]:
                     ref_idx.append(element)
-                name = f"{name}.{element}"
+                name.append(element.encode("utf-8"))
             else:
                 suffix = self._ref_idx[ref]
                 for ref_idx in self._ref_idx[ref_idx_start:]:
                     ref_idx.extend(suffix)
-                name = f"{name}.{'.'.join(suffix)}"
+                name.extend([n.encode("utf-8") for n in suffix])
                 offset += 1
                 break
             offset += 1
@@ -194,7 +194,9 @@ class Decoder:
             else:
                 is_name = False
                 ref = None
-        return name.strip("."), offset
+        if name[-1] != "":
+            name.append("")  # make name absolute in terms of dnspython
+        return name, offset
 
     def _decode_question(self, cbor_question):
         name, offset = self._decode_name(cbor_question)
@@ -220,7 +222,7 @@ class Decoder:
         else:
             raise ValueError(f"Invalid length for question {cbor_question!r}")
         return dns.rrset.RRset(
-            name=dns.name.from_text(name),
+            name=dns.name.Name(name),
             rdclass=rdclass,
             rdtype=rdtype,
         )
@@ -263,7 +265,7 @@ class Decoder:
             ttl |= (version & 0xFF) << 16
             ttl |= flags & 0xFFFF
             rrset = dns.rrset.RRset(
-                dns.name.from_text("."), udp_payload_size, dns.rdatatype.OPT
+                dns.name.Name([b""]), udp_payload_size, dns.rdatatype.OPT
             )
             rrset.add(opt, ttl)
             res.sections[section].append(rrset)
@@ -276,8 +278,8 @@ class Decoder:
                 ttl = cbor_rr[0]
                 offset = 1
             else:
-                name_str, name_offset = self._decode_name(cbor_rr)
-                name = dns.name.from_text(name_str)
+                labels, name_offset = self._decode_name(cbor_rr)
+                name = dns.name.Name(labels)
                 if (name_offset + 1) > len(cbor_rr):
                     raise ValueError(
                         f"Resource record of unexpected length {cbor_rr!r}"
@@ -302,13 +304,13 @@ class Decoder:
             # rdata = self.deref(cbor_rr[offset])
             is_name, _ = self._is_name(cbor_rr[offset])
             if is_name:
-                name_str, name_offset = self._decode_name(cbor_rr[offset:])
+                labels, name_offset = self._decode_name(cbor_rr[offset:])
                 offset += name_offset
                 if offset < len(cbor_rr):
                     raise ValueError(
                         f"Resource record of unexpected length {cbor_rr!r}"
                     )
-                rdata = dns.name.from_text(name_str).to_wire()
+                rdata = dns.name.Name(labels).to_wire()
             else:
                 rdata = self.deref(cbor_rr[offset])
                 if isinstance(rdata, int):

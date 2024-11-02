@@ -21,49 +21,6 @@ from . import utils
 from .utils import RefIdx
 
 
-def _escapify(label: Union[bytes, str]) -> str:
-    if isinstance(label, bytes):
-        return label.decode("utf-8")
-    else:
-        return dns.name._escapify(label)
-
-
-class UnescapedIDNA2008Codec(dns.name.IDNA2008Codec):
-    def decode(self, label: bytes) -> str:
-        if not self.strict_decode:
-            if self.is_idna(label):
-                try:
-                    slabel = label[4:].decode("punycode")
-                    if len(label) < len(slabel.encode("utf-8")):
-                        return label.decode("ascii")
-                    return _escapify(slabel)
-                except Exception as e:
-                    raise dns.name.IDNAException(idna_exception=e)
-            else:
-                return _escapify(label)
-        if label == b"":
-            return ""
-        if not dns.name.have_idna_2008:
-            raise dns.name.NoIDNA2008
-        try:
-            ulabel = dns.name.idna.ulabel(label)
-            if self.uts_46:
-                ulabel = dns.name.idna.uts46_remap(ulabel, False, self.transitional)
-            if len(label) < len(ulabel.encode("utf-8")):
-                return label.decode("ascii")
-            return _escapify(ulabel)
-        except (dns.name.idna.IDNAError, UnicodeError) as e:
-            raise dns.name.IDNAException(idna_exception=e)
-
-
-IDNA_CODEC = UnescapedIDNA2008Codec(True, False, True, False)
-
-
-def name_to_text(name):
-    text = name.to_unicode(omit_final_dot=True, idna_codec=IDNA_CODEC)
-    return text
-
-
 class TypeSpec:
     def __init__(
         self,
@@ -256,7 +213,7 @@ class RR(HasTypeSpec):
         res.append(self.ttl)
         res.extend(self.type_spec.to_obj())
         if isinstance(self.rdata, dns.rdtypes.nsbase.NSBase):
-            res.extend(self.ref_idx.add(name_to_text(self.rdata.target)))
+            res.extend(self.ref_idx.add(self.rdata.target))
         else:
             res.append(self.rdata.to_wire())
         return res
@@ -290,7 +247,7 @@ class RR(HasTypeSpec):
                     return [byts]
             return [
                 cls(
-                    name_to_text(rrset.name),
+                    rrset.name,
                     TypeSpec(rrset.rdtype, rrset.rdclass),
                     rrset.ttl,
                     rr,
@@ -732,8 +689,6 @@ class Encoder:
     def default_encoder(cbor_encoder, value):
         if isinstance(value, (DNSQuery, DNSResponse, Question, RR, OptRR)):
             cbor_encoder.encode(value.to_obj())
-        elif isinstance(value, dns.name.Name):
-            cbor_encoder.encode(name_to_text(value))
         elif isinstance(value, PackingTable):
             try:
                 cbor_encoder.encoding_packing_table = True
@@ -750,7 +705,7 @@ class Encoder:
             )
         question_section = msg.question[0]
         return Question(
-            name_to_text(question_section.name),
+            question_section.name,
             TypeSpec(question_section.rdtype, question_section.rdclass),
             self.ref_idx,
         )
