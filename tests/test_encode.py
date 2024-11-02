@@ -4,6 +4,7 @@
 import io
 import pprint
 
+import cbor_diag
 import cbor2
 import pytest
 
@@ -15,10 +16,13 @@ QUERY_AAAA = (
     b"\x04\xd0\x00\x00\x00\x00\x00\x0c\x00\x0a\x00\x08\x99\x21\x09\x65"
     b"\x33\xa3\x66\xb5"
 )
-QUERY_AAAA_CBOR = (
-    b"\x83\x19\x01 \x81kexample.org\x81\xd8\x8d\x82\x19\x04\xd0"
-    b"\x82\nH\x99!\te3\xa3f\xb5"
-)
+QUERY_AAAA_CBOR = """
+    [
+        288,
+        ["example", "org"],
+        [141([1232, [10, h'9921096533a366b5']])],
+    ]
+    """
 QUERY_A = (
     b"\x00\x00\x01\x20\x00\x01\x00\x00\x00\x00\x00\x01\x07\x65\x78\x61"
     b"\x6d\x70\x6c\x65\x03\x6f\x72\x67\x00\x00\x01\x00\x01\x00\x00\x29"
@@ -26,7 +30,7 @@ QUERY_A = (
     b"\xa8\x46\x19\xa4"
 )
 QUERY_A_CBOR = (
-    b"\x83\x19\x01 \x82kexample.org\x01\x81\xd8\x8d\x82\x19\x04\xd0"
+    b"\x83\x19\x01 \x83gexamplecorg\x01\x81\xd8\x8d\x82\x19\x04\xd0"
     b"\x82\nHt^l\x10\xa8F\x19\xa4"
 )
 RESPONSE_AAAA = (
@@ -63,31 +67,36 @@ RESPONSE_AAAA = (
     b"\xc4\xab\xef\xec\xe8\x79\x64\x35\x46\xd3\x7b\x9c\xb7\xd5\x61\xaa"
     b"\xd9\xc2"
 )
-RESPONSE_AAAA_CBOR = (
-    b"\x85\x19\x81\x80\x81kexample.org\x81\x82\x19YQP&\x06(\x00\x02 "
-    b"\x00\x01\x02H\x18\x93%\xc8\x19F\x86\x84corg\x1a\x00\x01\xb1\xf0\x02vd0.or"
-    b"g.afilias-nst.org\x84corg\x1a\x00\x01\xb1\xf0\x02vb0.org.afilias-nst.org\x84"
-    b"corg\x1a\x00\x01\xb1\xf0\x02vb2.org.afilias-nst.org\x84corg\x1a\x00"
-    b"\x01\xb1\xf0\x02wc0.org.afilias-nst.info\x84corg\x1a\x00\x01\xb1\xf0\x02w"
-    b"a0.org.afilias-nst.info\x84corg\x1a\x00\x01\xb1\xf0\x02wa2.org.afilias-ns"
-    b"t.info\x8d\x84wa0.org.afilias-nst.info\x1a\x00\x01\xb1\xf0\x01D\xc7"
-    b"\x138\x01\x84wa2.org.afilias-nst.info\x1a\x00\x01\xb1\xf0\x01D\xc7"
-    b"\xf9p\x01\x84vb0.org.afilias-nst.org\x1a\x00\x01\xb1\xf0\x01D\xc7\x13"
-    b"6\x01\x84vb2.org.afilias-nst.org\x1a\x00\x01\xb1\xf0\x01D\xc7\xf9x\x01\x84wc"
-    b"0.org.afilias-nst.info\x1a\x00\x01\xb1\xf0\x01D\xc7\x135\x01\x84vd0.org.af"
-    b"ilias-nst.org\x1a\x00\x01\xb1\xf0\x01D\xc7\x139\x01\x83wa0.org.afilias-nst"
-    b".info\x1a\x00\x01\xb1\xf0P \x01\x05\x00\x00\x0e\x00\x00\x00\x00\x00\x00\x00"
-    b"\x00\x00\x01\x83wa2.org.afilias-nst.info\x1a\x00\x01\xb1\xf0P \x01"
-    b"\x05\x00\x00@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x83vb0.org.afilias-n"
-    b"st.org\x1a\x00\x01\xb1\xf0P \x01\x05\x00\x00\x0c\x00\x00\x00\x00\x00\x00"
-    b"\x00\x00\x00\x01\x83vb2.org.afilias-nst.org\x1a\x00\x01\xb1\xf0P \x01"
-    b"\x05\x00\x00H\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x83wc0.org.afilias-n"
-    b"st.info\x1a\x00\x01\xb1\xf0P \x01\x05\x00\x00\x0b\x00\x00\x00\x00\x00"
-    b"\x00\x00\x00\x00\x01\x83vd0.org.afilias-nst.org\x1a\x00\x01\xb1\xf0P "
-    b"\x01\x05\x00\x00\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\xd8\x8d"
-    b"\x82\x19\x10\x00\x82\nX\x18\x16\x19\xc4\x7fn\xd6\xc4\xab\xef\xec\xe8yd5F"
-    b"\xd3{\x9c\xb7\xd5a\xaa\xd9\xc2"
-)
+RESPONSE_AAAA_CBOR = """
+[
+    33152,
+    ["example", "org"],
+    [[22865, h'26062800022000010248189325c81946']],
+    [
+        [7(1), 111088, 2, "d0", "org", "afilias-nst", 7(1)],
+        [7(1), 111088, 2, "b0", 7(3)],
+        [7(1), 111088, 2, "b2", 7(3)],
+        [7(1), 111088, 2, "c0", "org", "afilias-nst", "info"],
+        [7(1), 111088, 2, "a0", 7(8)],
+        [7(1), 111088, 2, "a2", 7(8)],
+    ],
+    [
+        [7(11), 111088, 1, h'c7133801'],
+        [7(12), 111088, 1, h'c7f97001'],
+        [7(5), 111088, 1, h'c7133601'],
+        [7(6), 111088, 1, h'c7f97801'],
+        [7(7), 111088, 1, h'c7133501'],
+        [7(2), 111088, 1, h'c7133901'],
+        [7(11), 111088, h'20010500000e00000000000000000001'],
+        [7(12), 111088, h'20010500004000000000000000000001'],
+        [7(5), 111088, h'20010500000c00000000000000000001'],
+        [7(6), 111088, h'20010500004800000000000000000001'],
+        [7(7), 111088, h'20010500000b00000000000000000001'],
+        [7(2), 111088, h'20010500000f00000000000000000001'],
+        141([4096, [10, h'1619c47f6ed6c4abefece879643546d37b9cb7d561aad9c2']]),
+    ],
+]
+"""
 RESPONSE_A = (
     b"\x00\x00\x01\x20\x00\x01\x00\x00\x00\x00\x00\x01\x07\x65\x78\x61"
     b"\x6d\x70\x6c\x65\x03\x6f\x72\x67\x00\x00\x1c\x00\x01\x00\x00\x29"
@@ -126,31 +135,35 @@ TEST_VECTOR = (
         False,
         QUERY_AAAA_CBOR,
         False,
-        (
-            b"\x84\x19\x81\x80\x81\x82\x19YQP&\x06(\x00\x02 \x00\x01\x02H\x18"
-            b"\x93%\xc8\x19F\x86\x84corg\x1a\x00\x01\xb1\xf0\x02vd0.org.afilias-nst.org"
-            b"\x84corg\x1a\x00\x01\xb1\xf0\x02vb0.org.afilias-nst.org\x84corg\x1a\x00"
-            b"\x01\xb1\xf0\x02vb2.org.afilias-nst.org\x84corg\x1a\x00\x01\xb1\xf0\x02"
-            b"wc0.org.afilias-nst.info\x84corg\x1a\x00\x01\xb1\xf0\x02wa0.org."
-            b"afilias-nst.info\x84corg\x1a\x00\x01\xb1\xf0\x02wa2.org.afilias-nst.info"
-            b"\x8d\x84wa0.org.afilias-nst.info\x1a\x00\x01\xb1\xf0\x01D\xc7\x138\x01"
-            b"\x84wa2.org.afilias-nst.info\x1a\x00\x01\xb1\xf0\x01D\xc7\xf9p\x01\x84"
-            b"vb0.org.afilias-nst.org\x1a\x00\x01\xb1\xf0\x01D\xc7\x136\x01\x84vb2.org."
-            b"afilias-nst.org\x1a\x00\x01\xb1\xf0\x01D\xc7\xf9x\x01\x84wc0.org."
-            b"afilias-nst.info\x1a\x00\x01\xb1\xf0\x01D\xc7\x135\x01\x84vd0.org."
-            b"afilias-nst.org\x1a\x00\x01\xb1\xf0\x01D\xc7\x139\x01\x83wa0.org."
-            b"afilias-nst.info\x1a\x00\x01\xb1\xf0P \x01\x05\x00\x00\x0e\x00\x00\x00"
-            b"\x00\x00\x00\x00\x00\x00\x01\x83wa2.org.afilias-nst.info\x1a\x00\x01\xb1"
-            b"\xf0P \x01\x05\x00\x00@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x83"
-            b"vb0.org.afilias-nst.org\x1a\x00\x01\xb1\xf0P \x01\x05\x00\x00\x0c\x00\x00"
-            b"\x00\x00\x00\x00\x00\x00\x00\x01\x83vb2.org.afilias-nst.org\x1a\x00\x01"
-            b"\xb1\xf0P \x01\x05\x00\x00H\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x83"
-            b"wc0.org.afilias-nst.info\x1a\x00\x01\xb1\xf0P \x01\x05\x00\x00\x0b\x00"
-            b"\x00\x00\x00\x00\x00\x00\x00\x00\x01\x83vd0.org.afilias-nst.org\x1a\x00"
-            b"\x01\xb1\xf0P \x01\x05\x00\x00\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-            b"\x01\xd8\x8d\x82\x19\x10\x00\x82\nX\x18\x16\x19\xc4\x7fn\xd6\xc4\xab\xef"
-            b"\xec\xe8yd5F\xd3{\x9c\xb7\xd5a\xaa\xd9\xc2"
-        ),
+        """
+[
+    33152,
+    [[22865, h'26062800022000010248189325c81946']],
+    [
+        ["org", 111088, 2, "d0", "org", "afilias-nst", 7(0)],
+        [7(0), 111088, 2, "b0", 7(2)],
+        [7(0), 111088, 2, "b2", 7(2)],
+        [7(0), 111088, 2, "c0", "org", "afilias-nst", "info"],
+        [7(0), 111088, 2, "a0", 7(7)],
+        [7(0), 111088, 2, "a2", 7(7)],
+    ],
+    [
+        [7(10), 111088, 1, h'c7133801'],
+        [7(11), 111088, 1, h'c7f97001'],
+        [7(4), 111088, 1, h'c7133601'],
+        [7(5), 111088, 1, h'c7f97801'],
+        [7(6), 111088, 1, h'c7133501'],
+        [7(1), 111088, 1, h'c7133901'],
+        [7(10), 111088, h'20010500000e00000000000000000001'],
+        [7(11), 111088, h'20010500004000000000000000000001'],
+        [7(4), 111088, h'20010500000c00000000000000000001'],
+        [7(5), 111088, h'20010500004800000000000000000001'],
+        [7(6), 111088, h'20010500000b00000000000000000001'],
+        [7(1), 111088, h'20010500000f00000000000000000001'],
+        141([4096, [10, h'1619c47f6ed6c4abefece879643546d37b9cb7d561aad9c2']]),
+    ],
+]
+        """,
         id="response example.org AAAA (w/ original query)",
     ),
     pytest.param(
@@ -174,25 +187,39 @@ TEST_VECTOR = (
         False,
         None,
         True,
-        (
-            b"\x82\x90\x1a\x00\x01\xb1\xf0corgu.org.afilias-nst.info\xd8\xd9q.org."
-            b"afilias-nst.\xd8\xdaa0\xd8\xdba0E \x01\x05\x00\x00A\xc7\xd8\xe7A\x13\xd8"
-            b"\xdaba2\xd8\xdcac\xd8\xdcaa\xd8\xdbbb2\xd8\xddad\xd8\xddab\xd8\xe7A\xf9"
-            b"\x85\x19\x81\x80\x81\xd8\xd9hexample.\x81\x82\x19YQP&\x06(\x00\x02 \x00"
-            b"\x01\x02H\x18\x93%\xc8\x19F\x86\x84\xe1\xe0\x02\xed\x84\xe1\xe0\x02\xee"
-            b"\x84\xe1\xe0\x02\xec\x84\xe1\xe0\x02\xea\x84\xe1\xe0\x02\xeb\x84"
-            b"\xe1\xe0\x02\xe9\x8d\x84\xeb\xe0\x01\xd8\xe8B8\x01\x84\xe9\xe0\x01\xd8"
-            b"\xefBp\x01\x84\xee\xe0\x01\xd8\xe8B6\x01\x84\xec\xe0\x01\xd8\xefBx"
-            b"\x01\x84\xea\xe0\x01\xd8\xe8B5\x01\x84\xed\xe0\x01\xd8\xe8B9\x01\x83"
-            b"\xeb\xe0\xd8\xe6K\x0e\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"
-            b"\x83\xe9\xe0\xd8\xe6K@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x83\xee"
-            b"\xe0\xd8\xe6K\x0c\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x83\xec\xe0\xd8"
-            b"\xe6KH\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x83\xea\xe0\xd8\xe6K\x0b"
-            b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x83\xed\xe0\xd8\xe6K\x0f\x00"
-            b"\x00\x00\x00\x00\x00\x00\x00\x00\x01\xd8\x8d\x82\x19\x10\x00\x82\nX\x18"
-            b"\x16\x19\xc4\x7fn\xd6\xc4\xab\xef\xec\xe8yd5F\xd3{\x9c\xb7\xd5a\xaa\xd9"
-            b"\xc2"
-        ),
+        """
+[
+    [111088, h'2001050000', h'c7', 226(h'13'), "org", "afilias-nst", 226(h'f9')],
+    [
+        33152,
+        ["example", simple(4)],
+        [[22865, h'26062800022000010248189325c81946']],
+        [
+            [7(1), simple(0), 2, "d0", simple(4), simple(5), 7(1)],
+            [7(1), simple(0), 2, "b0", 7(3)],
+            [7(1), simple(0), 2, "b2", 7(3)],
+            [7(1), simple(0), 2, "c0", simple(4), simple(5), "info"],
+            [7(1), simple(0), 2, "a0", 7(8)],
+            [7(1), simple(0), 2, "a2", 7(8)],
+        ],
+        [
+            [7(11), simple(0), 1, 227(h'3801')],
+            [7(12), simple(0), 1, 230(h'7001')],
+            [7(5), simple(0), 1, 227(h'3601')],
+            [7(6), simple(0), 1, 230(h'7801')],
+            [7(7), simple(0), 1, 227(h'3501')],
+            [7(2), simple(0), 1, 227(h'3901')],
+            [7(11), simple(0), 225(h'0e00000000000000000001')],
+            [7(12), simple(0), 225(h'4000000000000000000001')],
+            [7(5), simple(0), 225(h'0c00000000000000000001')],
+            [7(6), simple(0), 225(h'4800000000000000000001')],
+            [7(7), simple(0), 225(h'0b00000000000000000001')],
+            [7(2), simple(0), 225(h'0f00000000000000000001')],
+            141([4096, [10, h'1619c47f6ed6c4abefece879643546d37b9cb7d561aad9c2']]),
+        ],
+    ],
+]
+        """,
         id="response example.org AAAA (w/o original query), packed",
     ),
     pytest.param(
@@ -200,24 +227,38 @@ TEST_VECTOR = (
         False,
         QUERY_AAAA_CBOR,
         True,
-        (
-            b"\x82\x90\x1a\x00\x01\xb1\xf0corgu.org.afilias-nst.info\xd8\xd9q.org."
-            b"afilias-nst.\xd8\xdaa0\xd8\xdba0E \x01\x05\x00\x00A\xc7\xd8\xe7A\x13\xd8"
-            b"\xdaba2\xd8\xdcac\xd8\xdcaa\xd8\xdbbb2\xd8\xddad\xd8\xddab\xd8\xe7A\xf9"
-            b"\x84\x19\x81\x80\x81\x82\x19YQP&\x06(\x00\x02 \x00\x01\x02H\x18\x93%\xc8"
-            b"\x19F\x86\x84\xe1\xe0\x02\xed\x84\xe1\xe0\x02\xee\x84\xe1\xe0\x02"
-            b"\xec\x84\xe1\xe0\x02\xea\x84\xe1\xe0\x02\xeb\x84\xe1\xe0\x02\xe9"
-            b"\x8d\x84\xeb\xe0\x01\xd8\xe8B8\x01\x84\xe9\xe0\x01\xd8\xefBp\x01\x84"
-            b"\xee\xe0\x01\xd8\xe8B6\x01\x84\xec\xe0\x01\xd8\xefBx\x01\x84\xea\xe0"
-            b"\x01\xd8\xe8B5\x01\x84\xed\xe0\x01\xd8\xe8B9\x01\x83\xeb\xe0\xd8\xe6"
-            b"K\x0e\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x83\xe9\xe0\xd8\xe6K@\x00"
-            b"\x00\x00\x00\x00\x00\x00\x00\x00\x01\x83\xee\xe0\xd8\xe6K\x0c"
-            b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x83\xec\xe0\xd8\xe6KH\x00\x00"
-            b"\x00\x00\x00\x00\x00\x00\x00\x01\x83\xea\xe0\xd8\xe6K\x0b\x00\x00"
-            b"\x00\x00\x00\x00\x00\x00\x00\x01\x83\xed\xe0\xd8\xe6K\x0f\x00\x00\x00"
-            b"\x00\x00\x00\x00\x00\x00\x01\xd8\x8d\x82\x19\x10\x00\x82\nX\x18\x16"
-            b"\x19\xc4\x7fn\xd6\xc4\xab\xef\xec\xe8yd5F\xd3{\x9c\xb7\xd5a\xaa\xd9\xc2"
-        ),
+        """
+[
+    [111088, h'2001050000', h'c7', 226(h'13'), "org", "afilias-nst", 226(h'f9')],
+    [
+        33152,
+        [[22865, h'26062800022000010248189325c81946']],
+        [
+            ["org", simple(0), 2, "d0", simple(4), simple(5), 7(0)],
+            [7(0), simple(0), 2, "b0", 7(2)],
+            [7(0), simple(0), 2, "b2", 7(2)],
+            [7(0), simple(0), 2, "c0", simple(4), simple(5), "info"],
+            [7(0), simple(0), 2, "a0", 7(7)],
+            [7(0), simple(0), 2, "a2", 7(7)],
+        ],
+        [
+            [7(10), simple(0), 1, 227(h'3801')],
+            [7(11), simple(0), 1, 230(h'7001')],
+            [7(4), simple(0), 1, 227(h'3601')],
+            [7(5), simple(0), 1, 230(h'7801')],
+            [7(6), simple(0), 1, 227(h'3501')],
+            [7(1), simple(0), 1, 227(h'3901')],
+            [7(10), simple(0), 225(h'0e00000000000000000001')],
+            [7(11), simple(0), 225(h'4000000000000000000001')],
+            [7(4), simple(0), 225(h'0c00000000000000000001')],
+            [7(5), simple(0), 225(h'4800000000000000000001')],
+            [7(6), simple(0), 225(h'0b00000000000000000001')],
+            [7(1), simple(0), 225(h'0f00000000000000000001')],
+            141([4096, [10, h'1619c47f6ed6c4abefece879643546d37b9cb7d561aad9c2']]),
+        ],
+    ],
+]
+        """,
         id="response example.org AAAA (w/ original query), packed",
     ),
     pytest.param(
@@ -225,7 +266,8 @@ TEST_VECTOR = (
         True,
         None,
         False,
-        b"\x82\x19\x01\x00\x82ksol-doc.xyz\x180",
+        '[256, ["sol-doc", "xyz", 48]]',
+        id="Query for complicated name structure",
     ),
     pytest.param(
         bytes.fromhex(
@@ -234,12 +276,21 @@ TEST_VECTOR = (
             "6a696dc029"
         ),
         False,
-        b"\x82\x19\x01\x00\x82ksol-doc.xyz\x180",
+        '[256, ["sol-doc", "xyz", 48]]',
         True,
-        bytes.fromhex(
-            "8284616dd8d8712e6e732e636c6f7564666c6172652e636fd8d865366e772e69195460831"
-            "9818082e2028284e2e302d8d964656c6c6584e2e302d8d9636a696d"
-        ),
+        """
+[
+    [21600],
+    [
+        33152,
+        ["6nw", "im", 2],
+        [
+          [7(0), simple(0), 2, "elle", "ns", "cloudflare", "com"],
+          [7(0), simple(0), 2, "jim", 7(3)],
+        ],
+    ],
+]
+        """,
         id="Packed with complicated name structure",
     ),
     pytest.param(
@@ -251,10 +302,12 @@ TEST_VECTOR = (
         False,
         bytes.fromhex("82190100846172647475726e63636f6d01"),
         False,
-        bytes.fromhex(
-            "821981808287190258056172647475726e63636f6d66616b61646e73636e657484c700190"
-            "12c01443274c215"
-        ),
+        """
+[
+    33152,
+    [[600, 5, "r", "turn", "com", "akadns", "net"], [7(0), 300, 1, h'3274c215']],
+]
+        """,
         id="Testing comp_ref",
     ),
 )
@@ -298,11 +351,13 @@ def test_cbor_int_length(integer):
 @pytest.mark.parametrize("wire, _, orig_query, packed, exp_cbor", TEST_VECTOR)
 def test_encoder_encode(wire, _, orig_query, packed, exp_cbor):
     with io.BytesIO() as file:
-        encoder = cbor4dns.encode.Encoder(
-            file, packed=packed, always_omit_question=False
-        )
+        encoder = cbor4dns.encode.Encoder(file, packed=packed, always_omit_question=False)
+        if isinstance(orig_query, str):
+            orig_query = cbor_diag.diag2cbor(orig_query)
         encoder.encode(wire, orig_query)
         res = file.getvalue()
-        pprint.pprint(cbor2.loads(res))
+        print(cbor_diag.cbor2diag(res))
         print(len(res), len(wire), len(res) / len(wire))
+        if isinstance(exp_cbor, str):
+            exp_cbor = cbor_diag.diag2cbor(exp_cbor)
         assert res == exp_cbor
