@@ -201,9 +201,19 @@ class Decoder:
             rdtype = dns.rdatatype.AAAA
         elif len(cbor_question[offset:]) == 1:
             rdclass = dns.rdataclass.IN
+            assert isinstance(cbor_question[offset], int), (
+                f"Expecting integer after name, but found {type(cbor_question[offset])}"
+            )
             rdtype = self.deref(cbor_question[offset])
         elif len(cbor_question[offset:]) == 2:
+            assert isinstance(cbor_question[offset + 1], int), (
+                    "Expecting integer after type, but found "
+                    f"{type(cbor_question[offset + 1])}"
+            )
             rdclass = self.deref(cbor_question[offset + 1])
+            assert isinstance(cbor_question[offset], int), (
+                f"Expecting integer after name, but found {type(cbor_question[offset])}"
+            )
             rdtype = self.deref(cbor_question[offset])
         else:
             raise ValueError(f"Invalid length for question {cbor_question!r}")
