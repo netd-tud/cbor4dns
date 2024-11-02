@@ -171,14 +171,15 @@ class Decoder:
     def _decode_name(self, array):
         offset = 0
         name = ""
-        is_name, ref = self._is_name(array[offset])
+        element = self.deref(array[offset])
+        is_name, ref = self._is_name(element)
         ref_idx_start = len(self._ref_idx)
         while is_name:
-            if ref is None:  # array[offset] is a string
-                self._ref_idx.append([array[offset]])
+            if ref is None:  # element is a string
+                self._ref_idx.append([element])
                 for ref_idx in self._ref_idx[ref_idx_start:-1]:
-                    ref_idx.append(array[offset])
-                name = f"{name}.{self.deref(array[offset])}"
+                    ref_idx.append(element)
+                name = f"{name}.{element}"
             else:
                 suffix = self._ref_idx[ref]
                 for ref_idx in self._ref_idx[ref_idx_start:]:
@@ -188,7 +189,8 @@ class Decoder:
                 break
             offset += 1
             if offset < len(array):
-                is_name, ref = self._is_name(array[offset])
+                element = self.deref(array[offset])
+                is_name, ref = self._is_name(element)
             else:
                 is_name = False
                 ref = None
