@@ -316,8 +316,7 @@ class Decoder:
         svcb_params = {}
         for k, v in svcb_rdata[offset]:
             cls = dns.rdtypes.svcbbase._class_for_key.get(
-                k,
-                dns.rdtypes.svcbbase.GenericParam
+                k, dns.rdtypes.svcbbase.GenericParam
             )
             parser = dns.wire.Parser(v)
             svcb_params[k] = cls.from_wire_parser(parser)

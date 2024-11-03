@@ -54,10 +54,10 @@ def name_to_labels(name):
     if len(name.labels) == 1 and name.labels[0] == b"":
         return "."
     if name.is_absolute():
-        l = name.labels[:-1]
+        labels = name.labels[:-1]
     else:
-        l = name.labels
-    return [IDNA_CODEC.decode(x) for x in l]
+        labels = name.labels
+    return [IDNA_CODEC.decode(x) for x in labels]
 
 
 class RefIdx:

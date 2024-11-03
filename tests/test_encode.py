@@ -328,7 +328,7 @@ TEST_VECTOR = (
         None,
         False,
         RESPONSE_MX_CBOR,
-        id="response tu-dresden.de MX (w/o original query)"
+        id="response tu-dresden.de MX (w/o original query)",
     ),
     pytest.param(
         QUERY_SRV,
@@ -336,7 +336,7 @@ TEST_VECTOR = (
         None,
         False,
         QUERY_SRV_CBOR,
-        id="query todo._sftp-ssh._tcp.local SRV"
+        id="query todo._sftp-ssh._tcp.local SRV",
     ),
     pytest.param(
         RESPONSE_HTTPS,
@@ -344,7 +344,7 @@ TEST_VECTOR = (
         None,
         False,
         RESPONSE_HTTPS_CBOR,
-        id="response example.net HTTPS"
+        id="response example.net HTTPS",
     ),
     pytest.param(
         QUERY_AAAA,

@@ -3,7 +3,6 @@ Provides the encoder for encoding DNS messages to application/dns+cbor
 """
 
 import contextlib
-import enum
 import io
 import itertools
 from typing import List, Mapping, Optional, Tuple, Union
@@ -66,7 +65,9 @@ class Question(HasTypeSpec):
         self.name = name
 
     def __eq__(self, other):
-        return self.name.labels == other.name.labels and self.type_spec == other.type_spec
+        return (
+            self.name.labels == other.name.labels and self.type_spec == other.type_spec
+        )
 
     def walk(self):
         for obj in self.to_obj():
@@ -200,7 +201,8 @@ class RR(HasTypeSpec):
         if ttl < 0:
             raise ValueError(f"ttl={ttl} must not be < 0")
         assert rdata is not None or (
-            type_spec.record_type in [
+            type_spec.record_type
+            in [
                 RdataType.SOA,
                 RdataType.MX,
                 RdataType.SRV,
@@ -372,11 +374,11 @@ class SOARR(StructuredRR):
         question: Question,
         ref_idx: RefIdx,
     ):
-        assert 0 <= serial <= 0xffffffff
-        assert 0 <= refresh <= 0xffffffff
-        assert 0 <= retry <= 0xffffffff
-        assert 0 <= expire <= 0xffffffff
-        assert 0 <= minimum <= 0xffffffff
+        assert 0 <= serial <= 0xFFFFFFFF
+        assert 0 <= refresh <= 0xFFFFFFFF
+        assert 0 <= retry <= 0xFFFFFFFF
+        assert 0 <= expire <= 0xFFFFFFFF
+        assert 0 <= minimum <= 0xFFFFFFFF
         super().__init__(name, type_spec, ttl, None, question, ref_idx)
         self.mname = mname
         self.rname = rname
@@ -411,7 +413,7 @@ class MXRR(StructuredRR):
         question: Question,
         ref_idx: RefIdx,
     ):
-        assert 0 <= preference <= 0xffff
+        assert 0 <= preference <= 0xFFFF
         super().__init__(name, type_spec, ttl, None, question, ref_idx)
         self.preference = preference
         self.exchange = exchange
@@ -438,9 +440,9 @@ class SRVRR(StructuredRR):
         ref_idx: RefIdx,
         weight: int = 0,
     ):
-        assert 0 <= priority <= 0xffff
-        assert 0 <= port <= 0xffff
-        assert 0 <= weight <= 0xffff
+        assert 0 <= priority <= 0xFFFF
+        assert 0 <= port <= 0xFFFF
+        assert 0 <= weight <= 0xFFFF
         super().__init__(name, type_spec, ttl, None, question, ref_idx)
         self.priority = priority
         self.weight = weight
@@ -471,7 +473,7 @@ class SVCBRR(StructuredRR):
         svc_priority: int = 0,
         target: Optional[dns.name.Name] = None,
     ):
-        assert 0 <= svc_priority <= 0xffff
+        assert 0 <= svc_priority <= 0xFFFF
         super().__init__(name, type_spec, ttl, None, question, ref_idx)
         self.svc_priority = svc_priority
         if target is None:
