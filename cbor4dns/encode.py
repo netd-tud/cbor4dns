@@ -344,6 +344,11 @@ class SOARR(RR):
         question: Question,
         ref_idx: RefIdx,
     ):
+        assert 0 <= serial <= 0xffffffff
+        assert 0 <= refresh <= 0xffffffff
+        assert 0 <= retry <= 0xffffffff
+        assert 0 <= expire <= 0xffffffff
+        assert 0 <= minimum <= 0xffffffff
         super().__init__(name, type_spec, ttl, None, question, ref_idx)
         self.mname = mname
         self.rname = rname
@@ -378,6 +383,7 @@ class MXRR(RR):
         question: Question,
         ref_idx: RefIdx,
     ):
+        assert 0 <= preference <= 0xffff
         super().__init__(name, type_spec, ttl, None, question, ref_idx)
         self.preference = preference
         self.exchange = exchange
