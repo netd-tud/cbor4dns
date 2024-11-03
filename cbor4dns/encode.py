@@ -201,6 +201,7 @@ class RR(HasTypeSpec):
             type_spec.record_type in [
                 RdataType.SOA,
                 RdataType.MX,
+                RdataType.SRV,
             ]
         ), "rdata missing for non-structured rdata type"
         super().__init__(type_spec)
@@ -282,6 +283,21 @@ class RR(HasTypeSpec):
                         rr.exchange,
                         question,
                         ref_idx,
+                    )
+                    for rr in rrset
+                ]
+            elif rrset.rdtype == RdataType.SRV:
+                return [
+                    SRVRR(
+                        rrset.name,
+                        TypeSpec(rrset.rdtype, rrset.rdclass),
+                        rrset.ttl,
+                        rr.priority,
+                        rr.port,
+                        rr.target,
+                        question,
+                        ref_idx,
+                        weight=rr.weight,
                     )
                     for rr in rrset
                 ]
@@ -371,6 +387,40 @@ class MXRR(RR):
         rr = []
         rr.append(self.preference)
         rr.extend(self.ref_idx.add(self.exchange))
+        res.append(rr)
+        return res
+
+
+class SRVRR(RR):
+    def __init__(
+        self,
+        name: dns.name.Name,
+        type_spec: TypeSpec,
+        ttl: int,
+        priority: int,
+        port: int,
+        target: dns.name.Name,
+        question: Question,
+        ref_idx: RefIdx,
+        weight: int = 0,
+    ):
+        assert 0 <= priority <= 0xffff
+        assert 0 <= port <= 0xffff
+        assert 0 <= weight <= 0xffff
+        super().__init__(name, type_spec, ttl, None, question, ref_idx)
+        self.priority = priority
+        self.weight = weight
+        self.port = port
+        self.target = target
+
+    def to_obj(self):
+        res = super().to_obj()
+        rr = []
+        rr.append(self.priority)
+        if self.weight != 0:
+            rr.append(self.weight)
+        rr.append(self.port)
+        rr.extend(self.ref_idx.add(self.target))
         res.append(rr)
         return res
 

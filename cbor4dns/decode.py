@@ -16,6 +16,7 @@ import dns.rdatatype
 import dns.rdtypes.ANY.OPT
 import dns.rdtypes.ANY.MX
 import dns.rdtypes.ANY.SOA
+import dns.rdtypes.IN.SRV
 
 from . import utils
 
@@ -260,12 +261,36 @@ class Decoder:
             raise ValueError(f"MX record data of unexpected length {mx_rdata!r}")
         exchange, _ = self._decode_name(mx_rdata[1:])
         if not exchange:
-            raise ValueError("MX record data with unexpected exchange {mx_data!r}")
+            raise ValueError(f"MX record data with unexpected exchange {mx_rdata!r}")
         return dns.rdtypes.ANY.MX.MX(
             rdclass,
             rdtype,
             mx_rdata[0],
             dns.name.Name(exchange),
+        )
+
+    def _decode_srv_rr(self, rdtype, rdclass, srv_rdata):
+        if len(srv_rdata) < 3:
+            raise ValueError(f"SRV record data of unexpected length {srv_rdata!r}")
+        if isinstance(srv_rdata[2], int):
+            weight = srv_rdata[1]
+            port = srv_rdata[2]
+            target, _ = self._decode_name(srv_rdata[3:])
+        elif self._is_name(srv_rdata[2:]):
+            weight = 0
+            port = srv_rdata[1]
+            target, _ = self._decode_name(srv_rdata[2:])
+        else:
+            raise ValueError(f"SRV record data with unexpected types {srv_rdata!r}")
+        if not target:
+            raise ValueError(f"SRV record data with unexpected target {srv_rdata!r}")
+        return dns.rdtypes.IN.SRV.SRV(
+            rdclass,
+            rdtype,
+            srv_rdata[0],
+            weight,
+            port,
+            dns.name.Name(target),
         )
 
     def _decode_rr(self, name, section, cbor_rr, res):
@@ -354,6 +379,12 @@ class Decoder:
                 and isinstance(cbor_rr[offset], list)
             ):
                 rd = self._decode_mx_rr(rdtype, rdclass, cbor_rr[offset])
+            elif (
+                rdtype == dns.rdatatype.SRV
+                and rdclass == dns.rdataclass.IN
+                and isinstance(cbor_rr[offset], list)
+            ):
+                rd = self._decode_srv_rr(rdtype, rdclass, cbor_rr[offset])
             else:
                 # rdata = self.deref(cbor_rr[offset])
                 is_name, _ = self._is_name(cbor_rr[offset])
