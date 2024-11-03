@@ -17,6 +17,9 @@ import dns.rdtypes.ANY.OPT
 import dns.rdtypes.ANY.MX
 import dns.rdtypes.ANY.SOA
 import dns.rdtypes.IN.SRV
+import dns.rdtypes.IN.SVCB
+import dns.rdtypes.svcbbase
+import dns.wire
 
 from . import utils
 
@@ -293,6 +296,40 @@ class Decoder:
             dns.name.Name(target),
         )
 
+    def _decode_svcb_rr(self, rdtype, rdclass, svcb_rdata):
+        offset = 0
+        if isinstance(svcb_rdata[0], int):
+            svc_priority = svcb_rdata[0]
+            offset += 1
+        else:
+            svc_priority = 0
+        is_name, _ = self._is_name(svcb_rdata[1:])
+        if is_name:
+            target, name_offset = self._decode_name(svcb_rdata[1:])
+            offset += name_offset
+        else:
+            target = [b""]
+        if not isinstance(svcb_rdata[offset], list):
+            raise ValueError(
+                f"SVCB record has SvcParams in unexpected place {svcb_rdata!r}"
+            )
+        svcb_params = {}
+        for k, v in svcb_rdata[offset]:
+            cls = dns.rdtypes.svcbbase._class_for_key.get(
+                k,
+                dns.rdtypes.svcbbase.GenericParam
+            )
+            parser = dns.wire.Parser(v)
+            svcb_params[k] = cls.from_wire_parser(parser)
+        print(target)
+        return dns.rdtypes.IN.SVCB.SVCB(
+            rdclass,
+            rdtype,
+            svc_priority,
+            dns.name.Name(target),
+            svcb_params,
+        )
+
     def _decode_rr(self, name, section, cbor_rr, res):
         cbor_rr = self.deref(cbor_rr)
         if isinstance(cbor_rr, bytes):
@@ -385,6 +422,12 @@ class Decoder:
                 and isinstance(cbor_rr[offset], list)
             ):
                 rd = self._decode_srv_rr(rdtype, rdclass, cbor_rr[offset])
+            elif (
+                rdtype in [dns.rdatatype.SVCB, dns.rdatatype.HTTPS]
+                and rdclass == dns.rdataclass.IN
+                and isinstance(cbor_rr[offset], list)
+            ):
+                rd = self._decode_svcb_rr(rdtype, rdclass, cbor_rr[offset])
             else:
                 # rdata = self.deref(cbor_rr[offset])
                 is_name, _ = self._is_name(cbor_rr[offset])

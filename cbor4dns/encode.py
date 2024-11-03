@@ -3,15 +3,17 @@ Provides the encoder for encoding DNS messages to application/dns+cbor
 """
 
 import contextlib
+import enum
 import io
 import itertools
-from typing import List, Optional, Tuple, Union
+from typing import List, Mapping, Optional, Tuple, Union
 
 import cbor2
 import dns.message
 import dns.name
 import dns.rdata
 import dns.rdtypes.nsbase
+import dns.rdtypes.svcbbase
 import dns.rrset
 from dns.rdataclass import RdataClass
 from dns.rdatatype import RdataType
@@ -202,6 +204,8 @@ class RR(HasTypeSpec):
                 RdataType.SOA,
                 RdataType.MX,
                 RdataType.SRV,
+                RdataType.SVCB,
+                RdataType.HTTPS,
             ]
         ), "rdata missing for non-structured rdata type"
         super().__init__(type_spec)
@@ -301,6 +305,20 @@ class RR(HasTypeSpec):
                     )
                     for rr in rrset
                 ]
+            elif rrset.rdtype in [RdataType.SVCB, RdataType.HTTPS]:
+                return [
+                    SVCBRR(
+                        rrset.name,
+                        TypeSpec(rrset.rdtype, rrset.rdclass),
+                        rrset.ttl,
+                        rr.params,
+                        question,
+                        ref_idx,
+                        svc_priority=rr.priority,
+                        target=rr.target,
+                    )
+                    for rr in rrset
+                ]
             return [
                 cls(
                     rrset.name,
@@ -328,7 +346,17 @@ class RR(HasTypeSpec):
         return res
 
 
-class SOARR(RR):
+class StructuredRR(RR):
+    def walk(self):
+        for obj in super().walk():
+            if isinstance(obj, list):
+                for elem in obj:
+                    yield elem
+            else:
+                yield obj
+
+
+class SOARR(StructuredRR):
     def __init__(
         self,
         name: dns.name.Name,
@@ -372,7 +400,7 @@ class SOARR(RR):
         return res
 
 
-class MXRR(RR):
+class MXRR(StructuredRR):
     def __init__(
         self,
         name: dns.name.Name,
@@ -397,7 +425,7 @@ class MXRR(RR):
         return res
 
 
-class SRVRR(RR):
+class SRVRR(StructuredRR):
     def __init__(
         self,
         name: dns.name.Name,
@@ -427,6 +455,57 @@ class SRVRR(RR):
             rr.append(self.weight)
         rr.append(self.port)
         rr.extend(self.ref_idx.add(self.target))
+        res.append(rr)
+        return res
+
+
+class SVCBRR(StructuredRR):
+    def __init__(
+        self,
+        name: dns.name.Name,
+        type_spec: TypeSpec,
+        ttl: int,
+        svc_params: Mapping[dns.rdtypes.svcbbase.ParamKey, dns.rdtypes.svcbbase.Param],
+        question: Question,
+        ref_idx: RefIdx,
+        svc_priority: int = 0,
+        target: Optional[dns.name.Name] = None,
+    ):
+        assert 0 <= svc_priority <= 0xffff
+        super().__init__(name, type_spec, ttl, None, question, ref_idx)
+        self.svc_priority = svc_priority
+        if target is None:
+            self.target = dns.name.Name([b""])
+        else:
+            self.target = target
+        self.svc_params = svc_params
+
+    def walk(self):
+        for obj in super().walk():
+            if isinstance(obj, list):
+                for key, value in obj:
+                    yield int(key)
+                    with io.BytesIO() as f:
+                        value.to_wire(f)
+                        val = f.getvalue()
+                    yield val
+            else:
+                yield obj
+
+    def to_obj(self):
+        res = super().to_obj()
+        rr = []
+        if self.svc_priority != 0:
+            rr.append(self.svc_priority)
+        if self.target.labels != (b"",):
+            rr.extend(self.ref_idx.add(self.target))
+        svc_params = []
+        for key, value in self.svc_params.items():
+            with io.BytesIO() as f:
+                value.to_wire(f)
+                val = f.getvalue()
+            svc_params.append((int(key), val))
+        rr.append(svc_params)
         res.append(rr)
         return res
 

@@ -208,6 +208,41 @@ QUERY_SRV_CBOR = """
     [],
 ]
 """
+RESPONSE_HTTPS = (
+    b"\x00\x00\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00\x07\x65\x78\x61"
+    b"\x6d\x70\x6c\x65\x03\x6e\x65\x74\x00\x00\x41\x00\x01\xc0\x0c\x00"
+    b"\x41\x00\x01\x00\x00\x01\x2c\x00\x4e\x00\x01\x00\x00\x01\x00\x03"
+    b"\x02\x68\x32\x00\x04\x00\x0c\xc0\x00\x02\xc2\xc0\x00\x02\xc3\xc6"
+    b"\x33\x64\x53\x00\x06\x00\x30\x20\x01\x0d\xb8\x00\x20\x00\x00\x00"
+    b"\x00\x00\x00\xc0\x00\x02\xc2\x20\x01\x0d\xb8\x00\x20\x00\x00\x00"
+    b"\x00\x00\x00\xc0\x00\x02\xc3\x20\x01\x0d\xb8\x00\x20\x00\x00\x00"
+    b"\x00\x00\x00\xc6\x33\x64\x53"
+)
+RESPONSE_HTTPS_CBOR = """
+[
+    33152,
+    ["example", "net", 65],
+    [
+        [
+            300,
+            65,
+            [
+                1,
+                [
+                    [1, h'026832'],
+                    [4, h'c00002c2' h'c00002c3' h'c6336453'],
+                    [
+                        6,
+                        h'20010db80020000000000000c00002c2'
+                        h'20010db80020000000000000c00002c3'
+                        h'20010db80020000000000000c6336453',
+                    ],
+                ],
+            ],
+        ],
+    ],
+]
+"""
 
 
 TEST_VECTOR = (
@@ -302,6 +337,14 @@ TEST_VECTOR = (
         False,
         QUERY_SRV_CBOR,
         id="query todo._sftp-ssh._tcp.local SRV"
+    ),
+    pytest.param(
+        RESPONSE_HTTPS,
+        False,
+        None,
+        False,
+        RESPONSE_HTTPS_CBOR,
+        id="response example.net HTTPS"
     ),
     pytest.param(
         QUERY_AAAA,
