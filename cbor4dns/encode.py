@@ -200,6 +200,7 @@ class RR(HasTypeSpec):
         assert rdata is not None or (
             type_spec.record_type in [
                 RdataType.SOA,
+                RdataType.MX,
             ]
         ), "rdata missing for non-structured rdata type"
         super().__init__(type_spec)
@@ -271,6 +272,19 @@ class RR(HasTypeSpec):
                     )
                     for rr in rrset
                 ]
+            elif rrset.rdtype == RdataType.MX:
+                return [
+                    MXRR(
+                        rrset.name,
+                        TypeSpec(rrset.rdtype, rrset.rdclass),
+                        rrset.ttl,
+                        rr.preference,
+                        rr.exchange,
+                        question,
+                        ref_idx,
+                    )
+                    for rr in rrset
+                ]
             return [
                 cls(
                     rrset.name,
@@ -333,6 +347,30 @@ class SOARR(RR):
         rr.append(self.expire)
         rr.append(self.minimum)
         rr.extend(self.ref_idx.add(self.rname))
+        res.append(rr)
+        return res
+
+
+class MXRR(RR):
+    def __init__(
+        self,
+        name: dns.name.Name,
+        type_spec: TypeSpec,
+        ttl: int,
+        preference: int,
+        exchange: dns.name.Name,
+        question: Question,
+        ref_idx: RefIdx,
+    ):
+        super().__init__(name, type_spec, ttl, None, question, ref_idx)
+        self.preference = preference
+        self.exchange = exchange
+
+    def to_obj(self):
+        res = super().to_obj()
+        rr = []
+        rr.append(self.preference)
+        rr.extend(self.ref_idx.add(self.exchange))
         res.append(rr)
         return res
 

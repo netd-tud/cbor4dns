@@ -14,6 +14,7 @@ import dns.name
 import dns.rdataclass
 import dns.rdatatype
 import dns.rdtypes.ANY.OPT
+import dns.rdtypes.ANY.MX
 import dns.rdtypes.ANY.SOA
 
 from . import utils
@@ -254,6 +255,19 @@ class Decoder:
             minimum,
         )
 
+    def _decode_mx_rr(self, rdtype, rdclass, mx_rdata):
+        if len(mx_rdata) < 2:
+            raise ValueError(f"MX record data of unexpected length {mx_rdata!r}")
+        exchange, _ = self._decode_name(mx_rdata[1:])
+        if not exchange:
+            raise ValueError("MX record data with unexpected exchange {mx_data!r}")
+        return dns.rdtypes.ANY.MX.MX(
+            rdclass,
+            rdtype,
+            mx_rdata[0],
+            dns.name.Name(exchange),
+        )
+
     def _decode_rr(self, name, section, cbor_rr, res):
         cbor_rr = self.deref(cbor_rr)
         if isinstance(cbor_rr, bytes):
@@ -334,6 +348,12 @@ class Decoder:
                 and isinstance(cbor_rr[offset], list)
             ):
                 rd = self._decode_soa_rr(rdtype, rdclass, cbor_rr[offset])
+            elif (
+                rdtype == dns.rdatatype.MX
+                and rdclass == dns.rdataclass.IN
+                and isinstance(cbor_rr[offset], list)
+            ):
+                rd = self._decode_mx_rr(rdtype, rdclass, cbor_rr[offset])
             else:
                 # rdata = self.deref(cbor_rr[offset])
                 is_name, _ = self._is_name(cbor_rr[offset])
