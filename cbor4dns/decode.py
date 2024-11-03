@@ -197,7 +197,7 @@ class Decoder:
             else:
                 is_name = False
                 ref = None
-        if not name or name[-1] != "":
+        if not name or name[-1] != b"":
             name.append(b"")  # make name absolute in terms of dnspython
         return name, offset
 

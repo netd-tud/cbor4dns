@@ -71,7 +71,7 @@ class RefIdx:
         comps = name_to_labels(name)
         res = []
         for i, comp in enumerate(comps):
-            suffix = ".".join(comps[i:])
+            suffix = tuple(comps[i:])
             if suffix in self._dict:
                 res.append(cbor2.CBORTag(self.tag, self._dict[suffix]))
                 break

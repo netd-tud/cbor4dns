@@ -322,7 +322,7 @@ TEST_VECTOR = (
         33152,
         [[22865, h'26062800022000010248189325c81946']],
         [
-            ["org", simple(0), 2, "d0", simple(4), simple(5), 7(0)],
+            [simple(4), simple(0), 2, "d0", simple(4), simple(5), 7(0)],
             [7(0), simple(0), 2, "b0", 7(2)],
             [7(0), simple(0), 2, "b2", 7(2)],
             [7(0), simple(0), 2, "c0", simple(4), simple(5), "info"],

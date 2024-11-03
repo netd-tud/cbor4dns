@@ -64,7 +64,7 @@ class Question(HasTypeSpec):
         self.name = name
 
     def __eq__(self, other):
-        return self.name == other.name and self.type_spec == other.type_spec
+        return self.name.labels == other.name.labels and self.type_spec == other.type_spec
 
     def walk(self):
         for obj in self.to_obj():
@@ -77,20 +77,22 @@ class Question(HasTypeSpec):
 
     @classmethod
     def from_obj(cls, obj: list, ref_idx: RefIdx):
-        offset = 1
+        offset = 0
         if not isinstance(obj[0], str):
             raise ValueError(
                 f"Expected name component in first element of question {obj}"
             )
-        name = obj[0]
-        for comp in obj[1:]:
+        name = []
+        for comp in obj:
             if isinstance(comp, str):
                 offset += 1
-                name = f"{name}.{comp}"
+                name.append(comp.encode("utf-8"))
             elif isinstance(comp, cbor2.CBORTag) and comp.tag == ref_idx.tag:
                 raise ValueError(f"Unexpected name reference in question {obj}")
             else:
                 break
+        if not name or name[-1] != b"":
+            name.append(b"")
         if not obj or (len(obj) - offset) > 2:
             raise ValueError(f"Unexpected question length for question {obj}")
         try:
@@ -101,7 +103,7 @@ class Question(HasTypeSpec):
             record_class = obj[offset + 1]
         except IndexError:
             record_class = RdataClass.IN
-        return cls(name, TypeSpec(record_type, record_class), ref_idx)
+        return cls(dns.name.Name(name), TypeSpec(record_type, record_class), ref_idx)
 
 
 class FlagsBase:
@@ -213,7 +215,7 @@ class RR(HasTypeSpec):
 
     def to_obj(self) -> list:
         res = []
-        if self.question.name != self.name:
+        if self.question.name.labels != self.name.labels:
             res.extend(self.ref_idx.add(self.name))
         res.append(self.ttl)
         res.extend(self.type_spec.to_obj())
