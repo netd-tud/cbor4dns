@@ -58,7 +58,7 @@ class HasTypeSpec:
 
 
 class Question(HasTypeSpec):
-    def __init__(self, name: str, type_spec: TypeSpec, ref_idx: RefIdx):
+    def __init__(self, name: dns.name.Name, type_spec: TypeSpec, ref_idx: RefIdx):
         super().__init__(type_spec)
         self.ref_idx = ref_idx
         self.name = name
@@ -186,7 +186,7 @@ class OptRR:
 class RR(HasTypeSpec):
     def __init__(
         self,
-        name: str,
+        name: dns.name.Name,
         type_spec: TypeSpec,
         ttl: int,
         rdata: dns.rdata.Rdata,
