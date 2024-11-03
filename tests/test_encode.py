@@ -69,7 +69,41 @@ MDNS_QUERY_CBOR = """
     [],
     [],
 ]
-
+"""
+RESPONSE_W_SOA = (
+    b"\x00\x00\x81\x80\x00\x01\x00\x00\x00\x01\x00\x00\x09\x73\x68\x61"
+    b"\x72\x65\x2d\x64\x6e\x73\x03\x63\x6f\x6d\x00\x00\x1c\x00\x01\xc0"
+    b"\x0c\x00\x06\x00\x01\x00\x00\x05\xb3\x00\x2f\x04\x74\x72\x6f\x79"
+    b"\x02\x6e\x73\x0a\x63\x6c\x6f\x75\x64\x66\x6c\x61\x72\x65\xc0\x16"
+    b"\x03\x64\x6e\x73\xc0\x33\x8a\x37\xca\x3f\x00\x00\x27\x10\x00\x00"
+    b"\x09\x60\x00\x09\x3a\x80\x00\x00\x07\x08"
+)
+RESPONSE_W_SOA_CBOR = """
+[
+    33152,
+    ["share-dns", "com"],
+    [],
+    [
+        [
+            1459,
+            6,
+            [
+                "troy",
+                "ns",
+                "cloudflare",
+                7(1),
+                2318912063,
+                10000,
+                2400,
+                604800,
+                1800,
+                "dns",
+                7(4),
+            ],
+        ],
+    ],
+    [],
+]
 """
 RESPONSE_AAAA = (
     b"\x00\x00\x81\x80\x00\x01\x00\x01\x00\x06\x00\x0d\x07\x65\x78\x61"
@@ -175,6 +209,14 @@ TEST_VECTOR = (
         False,
         RESPONSE_AAAA_CBOR,
         id="response example.org AAAA (w/o original query)",
+    ),
+    pytest.param(
+        RESPONSE_W_SOA,
+        False,
+        None,
+        False,
+        RESPONSE_W_SOA_CBOR,
+        id="response SOA (w/o original query)",
     ),
     pytest.param(
         RESPONSE_AAAA,

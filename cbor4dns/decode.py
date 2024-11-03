@@ -14,6 +14,7 @@ import dns.name
 import dns.rdataclass
 import dns.rdatatype
 import dns.rdtypes.ANY.OPT
+import dns.rdtypes.ANY.SOA
 
 from . import utils
 
@@ -173,6 +174,8 @@ class Decoder:
         name = []
         element = self.deref(array[offset])
         is_name, ref = self._is_name(element)
+        if not is_name:
+            return [], offset
         ref_idx_start = len(self._ref_idx)
         while is_name:
             if ref is None:  # element is a string
@@ -194,8 +197,8 @@ class Decoder:
             else:
                 is_name = False
                 ref = None
-        if name[-1] != "":
-            name.append("")  # make name absolute in terms of dnspython
+        if not name or name[-1] != "":
+            name.append(b"")  # make name absolute in terms of dnspython
         return name, offset
 
     def _decode_question(self, cbor_question):
@@ -225,6 +228,30 @@ class Decoder:
             name=dns.name.Name(name),
             rdclass=rdclass,
             rdtype=rdtype,
+        )
+
+    def _decode_soa_rr(self, rdtype, rdclass, soa_rdata):
+        mname, offset = self._decode_name(soa_rdata)
+        if not mname or len(soa_rdata[offset:]) < 6:
+            raise ValueError(f"SOA record data of unexpected length {soa_rdata!r}")
+        rname, _ = self._decode_name(soa_rdata[offset + 5 :])
+        if not rname:
+            raise ValueError(f"SOA record data with unexpected rname {soa_rdata!r}")
+        serial = soa_rdata[offset]
+        refresh = soa_rdata[offset + 1]
+        retry = soa_rdata[offset + 2]
+        expire = soa_rdata[offset + 3]
+        minimum = soa_rdata[offset + 4]
+        return dns.rdtypes.ANY.SOA.SOA(
+            rdclass,
+            rdtype,
+            dns.name.Name(mname),
+            dns.name.Name(rname),
+            serial,
+            refresh,
+            retry,
+            expire,
+            minimum,
         )
 
     def _decode_rr(self, name, section, cbor_rr, res):
@@ -301,23 +328,30 @@ class Decoder:
                 rdtype = dns.rdatatype.AAAA
                 rdclass = dns.rdataclass.IN
 
-            # rdata = self.deref(cbor_rr[offset])
-            is_name, _ = self._is_name(cbor_rr[offset])
-            if is_name:
-                labels, name_offset = self._decode_name(cbor_rr[offset:])
-                offset += name_offset
-                if offset < len(cbor_rr):
-                    raise ValueError(
-                        f"Resource record of unexpected length {cbor_rr!r}"
-                    )
-                rdata = dns.name.Name(labels).to_wire()
+            if (
+                rdtype == dns.rdatatype.SOA
+                and rdclass == dns.rdataclass.IN
+                and isinstance(cbor_rr[offset], list)
+            ):
+                rd = self._decode_soa_rr(rdtype, rdclass, cbor_rr[offset])
             else:
-                rdata = self.deref(cbor_rr[offset])
-                if isinstance(rdata, int):
-                    # TODO: check if this suffices
-                    rdata = struct.pack("!l", rdata)
+                # rdata = self.deref(cbor_rr[offset])
+                is_name, _ = self._is_name(cbor_rr[offset])
+                if is_name:
+                    labels, name_offset = self._decode_name(cbor_rr[offset:])
+                    offset += name_offset
+                    if offset < len(cbor_rr):
+                        raise ValueError(
+                            f"Resource record of unexpected length {cbor_rr!r}"
+                        )
+                    rdata = dns.name.Name(labels).to_wire()
+                else:
+                    rdata = self.deref(cbor_rr[offset])
+                    if isinstance(rdata, int):
+                        # TODO: check if this suffices
+                        rdata = struct.pack("!l", rdata)
+                rd = dns.rdata.from_wire(rdclass, rdtype, rdata, 0, len(rdata))
             rrset = dns.rrset.RRset(name, rdclass, rdtype)
-            rd = dns.rdata.from_wire(rdclass, rdtype, rdata, 0, len(rdata))
             rrset.add(rd, ttl)
             res.sections[section].append(rrset)
         else:

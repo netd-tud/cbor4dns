@@ -195,6 +195,11 @@ class RR(HasTypeSpec):
     ):
         if ttl < 0:
             raise ValueError(f"ttl={ttl} must not be < 0")
+        assert rdata is not None or (
+            type_spec.record_type in [
+                RdataType.SOA,
+            ]
+        ), "rdata missing for non-structured rdata type"
         super().__init__(type_spec)
         self.question = question
         self.ref_idx = ref_idx
@@ -212,10 +217,11 @@ class RR(HasTypeSpec):
             res.extend(self.ref_idx.add(self.name))
         res.append(self.ttl)
         res.extend(self.type_spec.to_obj())
-        if isinstance(self.rdata, dns.rdtypes.nsbase.NSBase):
-            res.extend(self.ref_idx.add(self.rdata.target))
-        else:
-            res.append(self.rdata.to_wire())
+        if self.rdata is not None:
+            if isinstance(self.rdata, dns.rdtypes.nsbase.NSBase):
+                res.extend(self.ref_idx.add(self.rdata.target))
+            else:
+                res.append(self.rdata.to_wire())
         return res
 
     @staticmethod
@@ -245,6 +251,24 @@ class RR(HasTypeSpec):
                     rrset.to_wire(fp)
                     byts = fp.getvalue()
                     return [byts]
+            elif rrset.rdtype == RdataType.SOA:
+                return [
+                    SOARR(
+                        rrset.name,
+                        TypeSpec(rrset.rdtype, rrset.rdclass),
+                        rrset.ttl,
+                        rr.mname,
+                        rr.rname,
+                        rr.serial,
+                        rr.refresh,
+                        rr.retry,
+                        rr.expire,
+                        rr.minimum,
+                        question,
+                        ref_idx,
+                    )
+                    for rr in rrset
+                ]
             return [
                 cls(
                     rrset.name,
@@ -269,6 +293,45 @@ class RR(HasTypeSpec):
                 cls.rrs_from_rrset(rrset, question, ref_idx) for rrset in section
             ),
         )
+        return res
+
+
+class SOARR(RR):
+    def __init__(
+        self,
+        name: dns.name.Name,
+        type_spec: TypeSpec,
+        ttl: int,
+        mname: dns.name.Name,
+        rname: dns.name.Name,
+        serial: int,
+        refresh: int,
+        retry: int,
+        expire: int,
+        minimum: int,
+        question: Question,
+        ref_idx: RefIdx,
+    ):
+        super().__init__(name, type_spec, ttl, None, question, ref_idx)
+        self.mname = mname
+        self.rname = rname
+        self.serial = serial
+        self.refresh = refresh
+        self.retry = retry
+        self.expire = expire
+        self.minimum = minimum
+
+    def to_obj(self):
+        res = super().to_obj()
+        rr = []
+        rr.extend(self.ref_idx.add(self.mname))
+        rr.append(self.serial)
+        rr.append(self.refresh)
+        rr.append(self.retry)
+        rr.append(self.expire)
+        rr.append(self.minimum)
+        rr.extend(self.ref_idx.add(self.rname))
+        res.append(rr)
         return res
 
 
