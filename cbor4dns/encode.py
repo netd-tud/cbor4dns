@@ -407,7 +407,6 @@ class SOARR(StructuredRR):
         ref_idx: RefIdx,
     ):
         super().__init__(name, type_spec, ttl, None, question, ref_idx)
-        print(type(soa.mname), soa.mname)
         self.mname = soa.mname
         self.rname = soa.rname
         self.serial = soa.serial
@@ -419,7 +418,6 @@ class SOARR(StructuredRR):
     def to_obj(self):
         res = super().to_obj()
         rr = []
-        print(type(self.mname), self.mname)
         rr.extend(self.ref_idx.add(self.mname))
         rr.append(self.serial)
         rr.append(self.refresh)

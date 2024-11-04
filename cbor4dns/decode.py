@@ -362,7 +362,6 @@ class Decoder:
             )
             parser = dns.wire.Parser(v)
             svcb_params[k] = cls.from_wire_parser(parser)
-        print(target)
         return dns.rdtypes.IN.SVCB.SVCB(
             rdclass,
             rdtype,
