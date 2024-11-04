@@ -41,10 +41,28 @@ class TypeSpec:
             and self.record_class == other.record_class
         )
 
-    def to_obj(self) -> list:
+    def __lt__(self, other):
+        return (
+            self.record_class <= other.record_class
+            and self.record_type < other.record_type
+        )
+
+    def __le__(self, other):
+        return (
+            self.record_class <= other.record_class
+            and self.record_type <= other.record_type
+        )
+
+    def __str__(self):
+        return (
+            f"TypeSpec(record_type={self.record_type}, "
+            f"record_class={self.record_class})"
+        )
+
+    def to_obj(self, enforce_aaaa=False) -> list:
         if self.record_class != RdataClass.IN:
             return [self.record_type, self.record_class]
-        if self.record_type != RdataType.AAAA:
+        if self.record_type != RdataType.AAAA or enforce_aaaa:
             return [self.record_type]
         return []
 
@@ -63,15 +81,39 @@ class HasTypeSpec:
 
 
 class Question(HasTypeSpec):
-    def __init__(self, name: dns.name.Name, type_spec: TypeSpec, ref_idx: RefIdx):
+    def __init__(
+        self,
+        name: dns.name.Name,
+        type_spec: TypeSpec,
+        ref_idx: RefIdx,
+        further_names: Optional[List[dns.name.Name]] = None,
+        further_type_spec: Optional[List[TypeSpec]] = None,
+    ):
         super().__init__(type_spec)
         self.ref_idx = ref_idx
         self.name = name
+        if further_names is not None and further_type_spec is not None:
+            assert len(further_names) == len(further_type_spec)
+        self.further_names = further_names
+        self.further_type_spec = further_type_spec
 
     def __eq__(self, other):
-        return (
+        res = (
             self.name.labels == other.name.labels and self.type_spec == other.type_spec
         )
+        if self.further_names and self.further_type_spec:
+            res = res and all(
+                s == o
+                for s, o in zip(sorted(self.further_names), sorted(other.further_names))
+            )
+            res = res and all(
+                s == o
+                for s, o in zip(
+                    sorted(self.further_type_spec), sorted(other.further_type_spec)
+                )
+            )
+
+        return res
 
     def walk(self):
         for obj in self.to_obj():
@@ -79,7 +121,11 @@ class Question(HasTypeSpec):
 
     def to_obj(self) -> list:
         res = self.ref_idx.add(self.name)
-        res.extend(self.type_spec.to_obj())
+        res.extend(self.type_spec.to_obj(self.further_names and self.further_type_spec))
+        if self.further_names and self.further_type_spec:
+            for name, type_spec in zip(self.further_names, self.further_type_spec):
+                res.extend(self.ref_idx.add(name))
+                res.extend(type_spec.to_obj(True))
         return res
 
     @classmethod
@@ -950,14 +996,21 @@ class Encoder:
 
     def _get_question(self, msg):
         if len(msg.question) > 1:
-            raise ValueError(
-                f"Can not encode message {msg} with question section longer than 1"
-            )
+            further_names = []
+            further_type_spec = []
+            for question in msg.question[1:]:
+                further_names.append(question.name)
+                further_type_spec.append(TypeSpec(question.rdtype, question.rdclass))
+        else:
+            further_names = None
+            further_type_spec = None
         question_section = msg.question[0]
         return Question(
             question_section.name,
             TypeSpec(question_section.rdtype, question_section.rdclass),
             self.ref_idx,
+            further_names=further_names,
+            further_type_spec=further_type_spec,
         )
 
     def _get_additional(self, msg, question):

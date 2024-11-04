@@ -35,6 +35,19 @@ QUERY_A_CBOR = """
         [141([1232, {10: h'745e6c10a84619a4'}])],
     ]
     """
+QUERY_2_QUESTIONS = (
+    b"\x00\x00\x01\x20\x00\x02\x00\x00\x00\x00\x00\x01\x07\x65\x78\x61"
+    b"\x6d\x70\x6c\x65\x03\x6f\x72\x67\x00\x00\x1c\x00\x01\xc0\x0c\x00"
+    b"\x01\x00\x01\x00\x00\x29\x04\xd0\x00\x00\x00\x00\x00\x0c\x00\x0a"
+    b"\x00\x08\x99\x21\x09\x65\x33\xa3\x66\xb5"
+)
+QUERY_2_QUESTIONS_CBOR = """
+    [
+        288,
+        ["example", "org", 28, 7(0), 1],
+        [141([1232, {10: h'9921096533a366b5'}])],
+    ]
+    """
 MDNS_QUERY = (
     b"\x00\x00\x00\x00\x00\x01\x00\x02\x00\x00\x00\x00\x0b\x5f\x61\x6d"
     b"\x7a\x6e\x2d\x77\x70\x6c\x61\x79\x04\x5f\x74\x63\x70\x05\x6c\x6f"
@@ -279,6 +292,15 @@ TEST_VECTOR = (
         False,
         QUERY_A_CBOR,
         id="query example.org A",
+    ),
+    pytest.param(
+        QUERY_2_QUESTIONS,
+        True,
+        None,
+        False,
+        False,
+        QUERY_2_QUESTIONS_CBOR,
+        id="query example.org 2 questions",
     ),
     pytest.param(
         MDNS_QUERY,

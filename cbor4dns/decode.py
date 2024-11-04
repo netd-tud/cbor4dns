@@ -228,7 +228,49 @@ class Decoder:
             ), f"Expecting integer after name, but found {type(cbor_question[offset])}"
             rdtype = self.deref(cbor_question[offset])
         else:
-            raise ValueError(f"Invalid length for question {cbor_question!r}")
+            assert isinstance(
+                cbor_question[offset], int
+            ), f"Expecting integer after name, but found {type(cbor_question[offset])}"
+            rdtype = self.deref(cbor_question[offset])
+            offset += 1
+            if offset < len(cbor_question) and isinstance(cbor_question[offset], int):
+                rdclass = self.deref(cbor_question[offset])
+                offset += 1
+            else:
+                rdclass = dns.rdataclass.IN
+            res = [
+                dns.rrset.RRset(
+                    name=dns.name.Name(name),
+                    rdclass=rdclass,
+                    rdtype=rdtype,
+                )
+            ]
+            while offset < len(cbor_question):
+                name, name_offset = self._decode_name(cbor_question[offset:])
+                offset += name_offset
+                if offset >= len(cbor_question):
+                    raise ValueError(f"Invalid length for question {cbor_question!r}")
+                assert isinstance(cbor_question[offset], int), (
+                    "Expecting integer after name, but found "
+                    f"{type(cbor_question[offset])}"
+                )
+                rdtype = self.deref(cbor_question[offset])
+                offset += 1
+                if offset < len(cbor_question) and isinstance(
+                    cbor_question[offset], int
+                ):
+                    rdclass = self.deref(cbor_question[offset])
+                    offset += 1
+                else:
+                    rdclass = dns.rdataclass.IN
+                res.append(
+                    dns.rrset.RRset(
+                        name=dns.name.Name(name),
+                        rdclass=rdclass,
+                        rdtype=rdtype,
+                    )
+                )
+            return res
         return dns.rrset.RRset(
             name=dns.name.Name(name),
             rdclass=rdclass,
@@ -460,7 +502,11 @@ class Decoder:
             provide_question = obj.pop(0)
         offset, res = self._init_msg_type(obj, dns.message.QueryMessage)
         sections = len(obj) - offset
-        res.question = [self._decode_question(obj[offset])]
+        question = self._decode_question(obj[offset])
+        if isinstance(question, list):
+            res.question = question
+        else:
+            res.question = [question]
         if sections == 1:
             answer = []
             authority = []
