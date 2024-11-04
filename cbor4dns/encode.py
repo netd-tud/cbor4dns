@@ -5,13 +5,17 @@ Provides the encoder for encoding DNS messages to application/dns+cbor
 import contextlib
 import io
 import itertools
-from typing import List, Mapping, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import cbor2
 import dns.message
 import dns.name
 import dns.rdata
 import dns.rdtypes.nsbase
+import dns.rdtypes.ANY.SOA
+import dns.rdtypes.ANY.MX
+import dns.rdtypes.IN.SRV
+import dns.rdtypes.IN.SVCB
 import dns.rdtypes.svcbbase
 import dns.rrset
 from dns.rdataclass import RdataClass
@@ -267,17 +271,11 @@ class RR(HasTypeSpec):
                         rrset.name,
                         TypeSpec(rrset.rdtype, rrset.rdclass),
                         rrset.ttl,
-                        rr.mname,
-                        rr.rname,
-                        rr.serial,
-                        rr.refresh,
-                        rr.retry,
-                        rr.expire,
-                        rr.minimum,
+                        soa,
                         question,
                         ref_idx,
                     )
-                    for rr in rrset
+                    for soa in rrset
                 ]
             elif rrset.rdtype == RdataType.MX:
                 return [
@@ -285,12 +283,11 @@ class RR(HasTypeSpec):
                         rrset.name,
                         TypeSpec(rrset.rdtype, rrset.rdclass),
                         rrset.ttl,
-                        rr.preference,
-                        rr.exchange,
+                        mx,
                         question,
                         ref_idx,
                     )
-                    for rr in rrset
+                    for mx in rrset
                 ]
             elif rrset.rdtype == RdataType.SRV:
                 return [
@@ -298,12 +295,9 @@ class RR(HasTypeSpec):
                         rrset.name,
                         TypeSpec(rrset.rdtype, rrset.rdclass),
                         rrset.ttl,
-                        rr.priority,
-                        rr.port,
-                        rr.target,
+                        rr,
                         question,
                         ref_idx,
-                        weight=rr.weight,
                     )
                     for rr in rrset
                 ]
@@ -313,11 +307,9 @@ class RR(HasTypeSpec):
                         rrset.name,
                         TypeSpec(rrset.rdtype, rrset.rdclass),
                         rrset.ttl,
-                        rr.params,
+                        rr,
                         question,
                         ref_idx,
-                        svc_priority=rr.priority,
-                        target=rr.target,
                     )
                     for rr in rrset
                 ]
@@ -364,33 +356,24 @@ class SOARR(StructuredRR):
         name: dns.name.Name,
         type_spec: TypeSpec,
         ttl: int,
-        mname: dns.name.Name,
-        rname: dns.name.Name,
-        serial: int,
-        refresh: int,
-        retry: int,
-        expire: int,
-        minimum: int,
+        soa: dns.rdtypes.ANY.SOA,
         question: Question,
         ref_idx: RefIdx,
     ):
-        assert 0 <= serial <= 0xFFFFFFFF
-        assert 0 <= refresh <= 0xFFFFFFFF
-        assert 0 <= retry <= 0xFFFFFFFF
-        assert 0 <= expire <= 0xFFFFFFFF
-        assert 0 <= minimum <= 0xFFFFFFFF
         super().__init__(name, type_spec, ttl, None, question, ref_idx)
-        self.mname = mname
-        self.rname = rname
-        self.serial = serial
-        self.refresh = refresh
-        self.retry = retry
-        self.expire = expire
-        self.minimum = minimum
+        print(type(soa.mname), soa.mname)
+        self.mname = soa.mname
+        self.rname = soa.rname
+        self.serial = soa.serial
+        self.refresh = soa.refresh
+        self.retry = soa.retry
+        self.expire = soa.expire
+        self.minimum = soa.minimum
 
     def to_obj(self):
         res = super().to_obj()
         rr = []
+        print(type(self.mname), self.mname)
         rr.extend(self.ref_idx.add(self.mname))
         rr.append(self.serial)
         rr.append(self.refresh)
@@ -408,15 +391,13 @@ class MXRR(StructuredRR):
         name: dns.name.Name,
         type_spec: TypeSpec,
         ttl: int,
-        preference: int,
-        exchange: dns.name.Name,
+        mx: dns.rdtypes.ANY.MX,
         question: Question,
         ref_idx: RefIdx,
     ):
-        assert 0 <= preference <= 0xFFFF
         super().__init__(name, type_spec, ttl, None, question, ref_idx)
-        self.preference = preference
-        self.exchange = exchange
+        self.preference = mx.preference
+        self.exchange = mx.exchange
 
     def to_obj(self):
         res = super().to_obj()
@@ -433,21 +414,15 @@ class SRVRR(StructuredRR):
         name: dns.name.Name,
         type_spec: TypeSpec,
         ttl: int,
-        priority: int,
-        port: int,
-        target: dns.name.Name,
+        srv: dns.rdtypes.IN.SRV,
         question: Question,
         ref_idx: RefIdx,
-        weight: int = 0,
     ):
-        assert 0 <= priority <= 0xFFFF
-        assert 0 <= port <= 0xFFFF
-        assert 0 <= weight <= 0xFFFF
         super().__init__(name, type_spec, ttl, None, question, ref_idx)
-        self.priority = priority
-        self.weight = weight
-        self.port = port
-        self.target = target
+        self.priority = srv.priority
+        self.weight = srv.weight
+        self.port = srv.port
+        self.target = srv.target
 
     def to_obj(self):
         res = super().to_obj()
@@ -467,20 +442,14 @@ class SVCBRR(StructuredRR):
         name: dns.name.Name,
         type_spec: TypeSpec,
         ttl: int,
-        svc_params: Mapping[dns.rdtypes.svcbbase.ParamKey, dns.rdtypes.svcbbase.Param],
+        svcb: dns.rdtypes.IN.SVCB,
         question: Question,
         ref_idx: RefIdx,
-        svc_priority: int = 0,
-        target: Optional[dns.name.Name] = None,
     ):
-        assert 0 <= svc_priority <= 0xFFFF
         super().__init__(name, type_spec, ttl, None, question, ref_idx)
-        self.svc_priority = svc_priority
-        if target is None:
-            self.target = dns.name.Name([b""])
-        else:
-            self.target = target
-        self.svc_params = svc_params
+        self.svc_priority = svcb.priority
+        self.target = svcb.target
+        self.svc_params = svcb.params
 
     def walk(self):
         for obj in super().walk():
