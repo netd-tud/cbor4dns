@@ -450,11 +450,14 @@ class Decoder:
         else:
             raise ValueError(f"Unexpected resource record type for {cbor_rr!r}")
 
-    def decode_query(self, obj: list = None) -> dns.message.QueryMessage:
+    def decode_query(self, obj: list = None) -> (dns.message.QueryMessage, bool):
         if obj is None:
             obj = self.cbor_decoder.decode()
         if not isinstance(obj, list):
             raise ValueError(f"Unexpected query object {obj!r}")
+        provide_question = False
+        if len(obj) > 0 and isinstance(obj[0], bool):
+            provide_question = obj.pop(0)
         offset, res = self._init_msg_type(obj, dns.message.QueryMessage)
         sections = len(obj) - offset
         res.question = [self._decode_question(obj[offset])]
@@ -485,7 +488,7 @@ class Decoder:
             self._decode_rr(name, dns.message.AUTHORITY, rr, res)
         for rr in additional:
             self._decode_rr(name, dns.message.ADDITIONAL, rr, res)
-        return res
+        return res, provide_question
 
     def decode_response(
         self,
@@ -496,7 +499,7 @@ class Decoder:
         if orig_query is not None:
             if isinstance(orig_query, bytes):
                 orig_query = cbor2.loads(orig_query)
-            orig_query = self.decode_query(orig_query)
+            orig_query, provide_question = self.decode_query(orig_query)
             # reset ref_idx
             self._ref_idx = []
         if obj is None:
@@ -529,6 +532,11 @@ class Decoder:
                 else:
                     if orig_query is None:
                         raise ValueError(f"No question provided for {obj!r}")
+                    if provide_question:
+                        raise ValueError(
+                            "Original query requested question, but it was not provided"
+                            "in response."
+                        )
                     res.question = orig_query.question
                 answer = obj[offset]
                 additional = []
@@ -566,14 +574,15 @@ class Decoder:
         orig_query: Optional[Union[bytes, list]] = None,
         packed: bool = False,
         obj: list = None,
-    ) -> dns.message.Message:
+    ) -> (dns.message.Message, bool):
         assert self._ref_idx is None
         with self._prepare_ref_idx():
             if msg_type == MsgType.QUERY:
                 return self.decode_query(obj=obj)
             elif msg_type == MsgType.RESPONSE:
-                return self.decode_response(
-                    orig_query=orig_query, packed=packed, obj=obj
+                return (
+                    self.decode_response(orig_query=orig_query, packed=packed, obj=obj),
+                    False,
                 )
             else:
                 raise ValueError(r"Unexpected message type {msg_type!r}")

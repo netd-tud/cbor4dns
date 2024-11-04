@@ -251,13 +251,31 @@ TEST_VECTOR = (
         True,
         None,
         False,
+        False,
         QUERY_AAAA_CBOR,
         id="query example.org AAAA",
+    ),
+    pytest.param(
+        QUERY_AAAA,
+        True,
+        None,
+        True,
+        False,
+        """
+        [
+            true,
+            288,
+            ["example", "org"],
+            [141([1232, {10: h'9921096533a366b5'}])],
+        ]
+        """,
+        id="query example.org AAAA enforcing question",
     ),
     pytest.param(
         QUERY_A,
         True,
         None,
+        False,
         False,
         QUERY_A_CBOR,
         id="query example.org A",
@@ -267,6 +285,7 @@ TEST_VECTOR = (
         True,
         None,
         False,
+        False,
         MDNS_QUERY_CBOR,
         id="mDNS query",
     ),
@@ -274,6 +293,7 @@ TEST_VECTOR = (
         RESPONSE_AAAA,
         False,
         None,
+        False,
         False,
         RESPONSE_AAAA_CBOR,
         id="response example.org AAAA (w/o original query)",
@@ -283,6 +303,7 @@ TEST_VECTOR = (
         False,
         None,
         False,
+        False,
         RESPONSE_W_SOA_CBOR,
         id="response SOA (w/o original query)",
     ),
@@ -290,6 +311,7 @@ TEST_VECTOR = (
         RESPONSE_AAAA,
         False,
         QUERY_AAAA_CBOR,
+        False,
         False,
         """
 [
@@ -327,6 +349,7 @@ TEST_VECTOR = (
         False,
         None,
         False,
+        False,
         RESPONSE_MX_CBOR,
         id="response tu-dresden.de MX (w/o original query)",
     ),
@@ -334,6 +357,7 @@ TEST_VECTOR = (
         QUERY_SRV,
         True,
         None,
+        False,
         False,
         QUERY_SRV_CBOR,
         id="query todo._sftp-ssh._tcp.local SRV",
@@ -343,6 +367,7 @@ TEST_VECTOR = (
         False,
         None,
         False,
+        False,
         RESPONSE_HTTPS_CBOR,
         id="response example.net HTTPS",
     ),
@@ -350,6 +375,7 @@ TEST_VECTOR = (
         QUERY_AAAA,
         True,
         None,
+        False,
         True,
         QUERY_AAAA_CBOR,
         id="query example.org AAAA, packed",
@@ -358,6 +384,7 @@ TEST_VECTOR = (
         QUERY_A,
         True,
         None,
+        False,
         True,
         QUERY_A_CBOR,
         id="query example.org A, packed",
@@ -366,6 +393,7 @@ TEST_VECTOR = (
         RESPONSE_AAAA,
         False,
         None,
+        False,
         True,
         """
 [
@@ -406,6 +434,7 @@ TEST_VECTOR = (
         RESPONSE_AAAA,
         False,
         QUERY_AAAA_CBOR,
+        False,
         True,
         """
 [
@@ -446,6 +475,7 @@ TEST_VECTOR = (
         True,
         None,
         False,
+        False,
         '[256, ["sol-doc", "xyz", 48]]',
         id="Query for complicated name structure",
     ),
@@ -457,6 +487,7 @@ TEST_VECTOR = (
         ),
         False,
         '[256, ["sol-doc", "xyz", 48]]',
+        False,
         True,
         """
 [
@@ -481,6 +512,7 @@ TEST_VECTOR = (
         ),
         False,
         bytes.fromhex("82190100846172647475726e63636f6d01"),
+        False,
         False,
         """
 [
@@ -528,8 +560,10 @@ def test_cbor_int_length(integer):
     assert len(cbor_bytes) == cbor4dns.encode.cbor_int_length(integer)
 
 
-@pytest.mark.parametrize("wire, _, orig_query, packed, exp_cbor", TEST_VECTOR)
-def test_encoder_encode(wire, _, orig_query, packed, exp_cbor):
+@pytest.mark.parametrize(
+    "wire, _, orig_query, enforce_question, packed, exp_cbor", TEST_VECTOR
+)
+def test_encoder_encode(wire, _, orig_query, enforce_question, packed, exp_cbor):
     with io.BytesIO() as file:
         encoder = cbor4dns.encode.Encoder(
             file,
@@ -539,7 +573,7 @@ def test_encoder_encode(wire, _, orig_query, packed, exp_cbor):
         if isinstance(orig_query, str):
             # pylint: disable=no-member
             orig_query = cbor_diag.diag2cbor(orig_query)
-        encoder.encode(wire, orig_query)
+        encoder.encode(wire, enforce_question or orig_query)
         res = file.getvalue()
         # pylint: disable=no-member
         print(cbor_diag.cbor2diag(res))

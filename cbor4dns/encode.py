@@ -574,13 +574,17 @@ class DNSQuery:
         question: Question,
         extra: QueryExtraSections,
         ref_idx: RefIdx,
+        enforce_question_in_resp: bool = False,
     ):
         self.flags = flags
         self.question = question
         self.extra = extra
         self.ref_idx = ref_idx
+        self.enforce_question_in_resp = enforce_question_in_resp
 
     def walk(self):
+        if self.enforce_question_in_resp:
+            yield self.enforce_question_in_resp
         for obj in self.flags.walk():
             yield obj
         for obj in self.question.walk():
@@ -590,7 +594,10 @@ class DNSQuery:
 
     def to_obj(self) -> list:
         self.ref_idx.clear()
-        res = self.flags.to_obj()
+        res = []
+        if self.enforce_question_in_resp:
+            res.append(self.enforce_question_in_resp)
+        res.extend(self.flags.to_obj())
         res.append(self.question)
         res.extend(self.extra.to_obj())
         return res
@@ -961,7 +968,7 @@ class Encoder:
             additional += RR.rrs_from_section(msg.tsig, question, self.ref_idx)
         return additional
 
-    def _encode_query(self, msg: dns.message.Message):
+    def _encode_query(self, msg: dns.message.Message, enforce_question_in_resp: bool):
         question = self._get_question(msg)
         return DNSQuery(
             QueryFlags(msg.flags),
@@ -972,10 +979,14 @@ class Encoder:
                 additional=self._get_additional(msg, question),
             ),
             self.ref_idx,
+            enforce_question_in_resp=enforce_question_in_resp,
         )
 
     def _encode_response(
-        self, msg: dns.message.Message, orig_question: Optional[Question]
+        self,
+        msg: dns.message.Message,
+        orig_question: Optional[Question],
+        enforce_question: bool = False,
     ):
         question = self._get_question(msg)
         extra_sections = ExtraSections(
@@ -984,7 +995,9 @@ class Encoder:
             ),
             additional=self._get_additional(msg, orig_question or question),
         )
-        if self.always_omit_question or (orig_question and question == orig_question):
+        if not enforce_question and (
+            self.always_omit_question or (orig_question and question == orig_question)
+        ):
             question = None
         return DNSResponse(
             ResponseFlags(msg.flags),
@@ -997,15 +1010,20 @@ class Encoder:
     def encode(
         self,
         msg: Union[bytes, dns.message.Message],
-        orig_query: Optional[Union[bytes, list]] = None,
+        orig_query: Optional[Union[bytes, list, bool]] = None,
     ):
         if not isinstance(msg, dns.message.Message):
             msg = dns.message.from_wire(msg, one_rr_per_rrset=True)
         self.ref_idx = RefIdx()
         if msg.flags & msg.flags.QR:  # msg is response
+            enforce_question = False
             if orig_query:
+                if isinstance(orig_query, bool):
+                    raise TypeError("orig_query may only be bool for query")
                 if isinstance(orig_query, bytes):
                     orig_query = cbor2.loads(orig_query)
+                if len(orig_query) > 0 and isinstance(orig_query[0], bool):
+                    enforce_question = orig_query.pop()
                 query_ref_idx = RefIdx()
                 orig_question = Question.from_obj(
                     [q for q in orig_query if isinstance(q, list)][0],
@@ -1013,12 +1031,13 @@ class Encoder:
                 )
                 del query_ref_idx
             else:
+                enforce_question = True
                 orig_question = None
-            res = self._encode_response(msg, orig_question)
+            res = self._encode_response(msg, orig_question, enforce_question)
             if self.packed:
                 packing_table_constr = self.packing_table_constructor_type(self)
                 self.packing_table = packing_table_constr.get_packing_table(res)
         else:
-            res = self._encode_query(msg)
+            res = self._encode_query(msg, bool(orig_query))
         self.cbor_encoder.encode(res)
         self.ref_idx = None

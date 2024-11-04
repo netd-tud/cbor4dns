@@ -1,4 +1,5 @@
 # pylint: disable=missing-function-docstring,missing-module-docstring
+# pylint: disable=too-many-arguments,too-many-positional-arguments
 
 
 import io
@@ -25,8 +26,12 @@ def test_decoder_is_ref(cbor, exp):
     assert exp == cbor4dns.decode.Decoder.is_ref(cbor)
 
 
-@pytest.mark.parametrize("exp_res, is_query, orig_query, packed, cbor", TEST_VECTOR)
-def test_decoder_decode(exp_res, is_query, orig_query, packed, cbor):
+@pytest.mark.parametrize(
+    "exp_res, is_query, orig_query, exp_enforce_question, packed, cbor", TEST_VECTOR
+)
+def test_decoder_decode(
+    exp_res, is_query, orig_query, exp_enforce_question, packed, cbor
+):
     if isinstance(orig_query, str):
         # pylint: disable=no-member
         orig_query = cbor_diag.diag2cbor(orig_query)
@@ -35,7 +40,7 @@ def test_decoder_decode(exp_res, is_query, orig_query, packed, cbor):
         cbor = cbor_diag.diag2cbor(cbor)
     with io.BytesIO(cbor) as file:
         decoder = cbor4dns.decode.Decoder(file)
-        res = decoder.decode(
+        res, enforce_question = decoder.decode(
             (
                 cbor4dns.decode.MsgType.QUERY
                 if is_query
@@ -45,3 +50,4 @@ def test_decoder_decode(exp_res, is_query, orig_query, packed, cbor):
             packed=packed,
         )
         assert res.to_wire(want_shuffle=False) == exp_res
+        assert enforce_question == exp_enforce_question
