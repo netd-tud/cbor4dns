@@ -61,11 +61,17 @@ def name_to_labels(name):
 
 
 class RefIdx:
-    tag = 7
+    def __init__(self, A=16):
+        self.A = A
 
-    def __init__(self):
         self._dict = {}
         self._count = 0
+
+    def shared_item(self, idx):
+        if idx < self.A:
+            return cbor2.CBORSimpleValue(idx)
+        n = (idx - self.A) // 2 if idx % 2 else ((self.A - idx - 1) // 2)
+        return cbor2.CBORTag(6, n)
 
     def add(self, name):
         comps = name_to_labels(name)
@@ -73,7 +79,7 @@ class RefIdx:
         for i, comp in enumerate(comps):
             suffix = tuple(comps[i:])
             if suffix in self._dict:
-                res.append(cbor2.CBORTag(self.tag, self._dict[suffix]))
+                res.append(self.shared_item(self._dict[suffix]))
                 break
             else:
                 self._dict[suffix] = self._count

@@ -834,14 +834,16 @@ class DefaultPackingTableConstructor:
 
 class Encoder:
     packing_table_constructor_type = DefaultPackingTableConstructor
+    packed_parametrized = True
 
-    def __init__(self, fp, packed=False, always_omit_question=False):
+    def __init__(self, fp, packed=False, always_omit_question=False, A=16, B=32, C=8):
+        self.A = A
         self.fp = fp
         self.packed = packed
         self.ref_idx = None
         self.always_omit_question = always_omit_question
         self.cbor_encoder = self.cbor_encoder_factory(
-            packed, fp=fp, default=self.default_encoder
+            packed, A=A, B=B, C=C, fp=fp, default=self.default_encoder,
         )
         if self.packed:
             self.counters = {
@@ -854,12 +856,15 @@ class Encoder:
             self.counters = None
             self.packing_table = None
 
-    def cbor_encoder_factory(self, packed, *args, **kwargs):
+    def cbor_encoder_factory(self, packed, *args, A=16, B=32, C=8, **kwargs):
         outer = self
 
         class PackedCBOREncoder(cbor2.CBOREncoder):
-            def __init__(self, *args, **kwargs):
+            def __init__(self, *args, A=16, B=32, C=8, **kwargs):
                 super().__init__(*args, **kwargs)
+                self.A = A
+                self.B = B
+                self.C = C
                 # update _encoders to overriding methods
                 self._encoders[int] = type(self).encode_int
                 self._encoders[bytes] = type(self).encode_bytestring
@@ -877,37 +882,23 @@ class Encoder:
                 return super().encode(obj)
 
             def ref_shared_item(self, value, idx):
-                if idx < 16:
+                if idx < self.A:
                     self.encode_simple_value((idx,))
                 else:
-                    n = (15 - idx) // 2 if idx % 2 else (idx - 16) // 2
+                    n = (idx - self.A) // 2 if idx % 2 else ((self.A - idx - 1) // 2)
                     self.encode_semantic(cbor2.CBORTag(6, n))
 
             def ref_straight_rump(self, value, idx):
-                if idx == 0:
-                    self.encode_semantic(cbor2.CBORTag(6, value))
-                elif idx < 32:
-                    self.encode_semantic(cbor2.CBORTag(224 + idx, value))
-                elif idx < 4096:
-                    self.encode_semantic(cbor2.CBORTag(28704 + (idx - 32), value))
-                elif idx < (1 << 28):
-                    self.encode_semantic(
-                        cbor2.CBORTag(1879052288 + (idx - 4096), value)
-                    )
-                else:  # pragma: no-cover
-                    raise RuntimeError("Should not be reached")
+                if idx < self.B:
+                    self.encode_semantic(cbor2.CBORTag((256 - self.B) + idx, value))
+                else:
+                    self.encode_semantic(cbor2.CBORTag(6, [idx - self.B, value]))
 
             def ref_inverted_rump(self, value, idx):
-                if idx < 8:
-                    self.encode_semantic(cbor2.CBORTag(216 + idx, value))
-                elif idx < 1024:
-                    self.encode_semantic(cbor2.CBORTag(27647 + (idx - 8), value))
-                elif idx < (1 << 26):
-                    self.encode_semantic(
-                        cbor2.CBORTag(1811940352 + (idx - 1024), value)
-                    )
-                else:  # pragma: no-cover
-                    raise RuntimeError("Should not be reached")
+                if idx < self.C:
+                    self.encode_semantic(cbor2.CBORTag((256 - self.B - self.C) + idx, value))
+                else:
+                    self.encode_semantic(cbor2.CBORTag(6, [self.C - idx - 1, value]))
 
             def encode_int(self, value):
                 if outer.packing_table:
@@ -968,15 +959,15 @@ class Encoder:
                                     and len(suffix) > max_match[1]
                                 ):
                                     max_match = idx, len(suffix)
-                        if max_match != (-1, 0):
-                            # TODO: check if ref_inverted_rump yields shorter CBOR code
-                            value = value[: -max_match[1]]
-                            self.ref_inverted_rump(value, max_match[0])
-                            return
+                        # if max_match != (-1, 0):
+                        #     # TODO: check if ref_inverted_rump yields shorter CBOR code
+                        #     value = value[: -max_match[1]]
+                        #     self.ref_inverted_rump(value, max_match[0])
+                        #     return
                 super().encode_string(value)
 
         if packed:
-            return PackedCBOREncoder(*args, **kwargs)
+            return PackedCBOREncoder(A=A, B=B, C=C, *args, **kwargs)
         return cbor2.CBOREncoder(*args, **kwargs)
 
     @staticmethod
@@ -1065,7 +1056,7 @@ class Encoder:
     ):
         if not isinstance(msg, dns.message.Message):
             msg = dns.message.from_wire(msg, one_rr_per_rrset=True)
-        self.ref_idx = RefIdx()
+        self.ref_idx = RefIdx(A=self.A)
         if msg.flags & msg.flags.QR:  # msg is response
             enforce_question = False
             if orig_query:
@@ -1075,7 +1066,7 @@ class Encoder:
                     orig_query = cbor2.loads(orig_query)
                 if len(orig_query) > 0 and isinstance(orig_query[0], bool):
                     enforce_question = orig_query.pop()
-                query_ref_idx = RefIdx()
+                query_ref_idx = RefIdx(A=self.A)
                 orig_question = Question.from_obj(
                     [q for q in orig_query if isinstance(q, list)][0],
                     query_ref_idx,
