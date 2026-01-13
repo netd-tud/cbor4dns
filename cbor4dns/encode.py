@@ -881,7 +881,12 @@ class Encoder:
                     return super().encode([outer.packing_table, obj])
                 return super().encode(obj)
 
+            @staticmethod
+            def _include_ref_idx(idx):
+                return idx + len(outer.ref_idx)
+
             def ref_shared_item(self, value, idx):
+                idx = self._include_ref_idx(idx)
                 if idx < self.A:
                     self.encode_simple_value((idx,))
                 else:
@@ -889,12 +894,14 @@ class Encoder:
                     self.encode_semantic(cbor2.CBORTag(6, n))
 
             def ref_straight_rump(self, value, idx):
+                idx = self._include_ref_idx(idx)
                 if idx < self.B:
                     self.encode_semantic(cbor2.CBORTag((256 - self.B) + idx, value))
                 else:
                     self.encode_semantic(cbor2.CBORTag(6, [idx - self.B, value]))
 
             def ref_inverted_rump(self, value, idx):
+                idx = self._include_ref_idx(idx)
                 if idx < self.C:
                     self.encode_semantic(cbor2.CBORTag((256 - self.B - self.C) + idx, value))
                 else:
