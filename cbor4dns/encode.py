@@ -782,6 +782,9 @@ class PackingTable:
     def __init__(self, lst):
         self.lst = lst
 
+    def __len__(self):
+        return len(self.lst)
+
     def __iter__(self):
         return iter(self.lst)
 
@@ -886,7 +889,7 @@ class Encoder:
 
             @staticmethod
             def _include_ref_idx(idx):
-                return idx + len(outer.ref_idx)
+                return idx
 
             def ref_shared_item(self, value, idx):
                 idx = self._include_ref_idx(idx)
@@ -980,8 +983,7 @@ class Encoder:
             return PackedCBOREncoder(A=A, B=B, C=C, *args, **kwargs)
         return cbor2.CBOREncoder(*args, **kwargs)
 
-    @staticmethod
-    def default_encoder(cbor_encoder, value):
+    def default_encoder(self, cbor_encoder, value):
         if isinstance(value, (DNSQuery, DNSResponse, Question, RR, OptRR)):
             cbor_encoder.encode(value.to_obj())
         elif isinstance(value, PackingTable):
@@ -990,6 +992,12 @@ class Encoder:
                 cbor_encoder.encode(value.lst)
             finally:
                 cbor_encoder.encoding_packing_table = False
+        elif isinstance(value, RefIdx.Reference):
+            cbor_encoder.encode(
+                value.create(
+                    offset=len(self.packing_table or [])
+                )
+            )
         else:
             raise ValueError(f"Can not encode {value} (type {type(value)})")
 

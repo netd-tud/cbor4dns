@@ -61,6 +61,18 @@ def name_to_labels(name):
 
 
 class RefIdx:
+    class Reference:
+        def __init__(self, idx, A=16):
+            self.idx = idx
+            self.A = A
+
+        def create(self, offset=0):
+            idx = self.idx + offset
+            if idx < self.A:
+                return cbor2.CBORSimpleValue(idx)
+            n = (idx - self.A) // 2 if idx % 2 else ((self.A - idx - 1) // 2)
+            return cbor2.CBORTag(6, n)
+
     def __init__(self, A=16):
         self.A = A
 
@@ -70,10 +82,7 @@ class RefIdx:
         return len(self._dict)
 
     def shared_item(self, idx):
-        if idx < self.A:
-            return cbor2.CBORSimpleValue(idx)
-        n = (idx - self.A) // 2 if idx % 2 else ((self.A - idx - 1) // 2)
-        return cbor2.CBORTag(6, n)
+        return self.Reference(idx, A=self.A)
 
     def add(self, name):
         comps = name_to_labels(name)
