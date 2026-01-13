@@ -65,7 +65,9 @@ class RefIdx:
         self.A = A
 
         self._dict = {}
-        self._count = 0
+
+    def __len__(self):
+        return len(self._dict)
 
     def shared_item(self, idx):
         if idx < self.A:
@@ -82,14 +84,12 @@ class RefIdx:
                 res.append(self.shared_item(self._dict[suffix]))
                 break
             else:
-                self._dict[suffix] = self._count
-                self._count += 1
+                self._dict[suffix] = len(self)
                 res.append(comp)
         return res
 
     def clear(self):
         self._dict.clear()
-        self._count = 0
 
 
 """
