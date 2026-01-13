@@ -500,9 +500,12 @@ class SVCBRR(StructuredRR):
             if isinstance(obj, list):
                 for key, value in obj:
                     yield int(key)
-                    with io.BytesIO() as f:
-                        value.to_wire(f)
-                        val = f.getvalue()
+                    if isinstance(value, bytes):
+                        val = value
+                    else:
+                        with io.BytesIO() as f:
+                            value.to_wire(f)
+                            val = f.getvalue()
                     yield val
             else:
                 yield obj
